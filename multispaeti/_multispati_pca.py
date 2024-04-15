@@ -20,7 +20,23 @@ _X: TypeAlias = np.ndarray | _Csr | _Csc
 
 class MultispatiPCA:
     """
-    MULTISPATI-PCA (Principal Component Analysis).
+    MULTISPATI-PCA
+
+    In contrast to Principal component analysis (PCA), MULTISPATI-PCA does not optimize
+    the variance explained of each component but rather the product of the variance and
+    Moran's I. This can lead to negative eigenvalues i.e. in the case of negative
+    auto-correlation.
+
+    The problem is solved by diagonalizing the symmetric matrix
+    :math:`H=1/(2n)*X^t(W+W^t)X` where `X` is matrix of `n` observations :math:`\\times`
+    `d` features, and `W` is a matrix of the connectivity between observations.
+
+    References
+    ----------
+    `Dray, Stéphane, Sonia Saïd, and Françis Débias. "Spatial ordination of vegetation
+    data using a generalization of Wartenberg's multivariate spatial correlation."
+    Journal of vegetation science 19.1 (2008): 45-56.
+    <https://onlinelibrary.wiley.com/doi/abs/10.3170/2007-8-18312>`_
     """
 
     # TODO, should scaling be part of multispati
@@ -37,15 +53,15 @@ class MultispatiPCA:
 
         n_components : int or tuple[int, int], optional
             Number of components to keep.
-            If None, will keep all components (only supported for non-sparse X).
+            If None, will keep all components (only supported for non-sparse `X`).
             If an int, it will keep the top `n_components`.
             If a tuple, it will keep the top and bottom `n_components` respectively.
         connectivity : scipy.sparse.sparray or scipy.sparse.spmatrix
-            Matrix of row-wise neighbor definitions i.e. c_ij is the connectivity of
-            i -> j. Does not have to be symmetric. Can be a binary adjacency matrix
-            or a matrix of connectivities in which case c_ij should be larger
-            if i and j are close.
-            A distance matrix should transformed to connectivities by e.g.
+            Matrix of row-wise neighbor definitions i.e. c\ :sub:`ij` is the connectivity of
+            i :math:`\\to` j. The matrix does not have to be symmetric. It can be a
+            binary adjacency matrix or a matrix of connectivities in which case
+            c\ :sub:`ij` should be larger if i and j are close.
+            A distance matrix should be transformed to connectivities by e.g.
             calculating :math:`1-d/d_{max}` beforehand.
         Raises
         ------
