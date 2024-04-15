@@ -291,7 +291,7 @@ class MultispatiPCA:
     def _spatial_lag(self, X: np.ndarray) -> np.ndarray:
         return self.W @ X
 
-    def variance_moranI_decomposition(self, X: _X) -> tuple[np.ndarray, np.ndarray]:
+    def variance_moransI_decomposition(self, X: _X) -> tuple[np.ndarray, np.ndarray]:
         """
         Calculate the decomposition of the variance and Moran's I for `n_components`.
 

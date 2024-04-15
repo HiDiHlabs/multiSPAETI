@@ -73,7 +73,7 @@ def plot_variance_moransI_decomposition(
     matplotlib.figure.Figure
     """
 
-    variance, moranI = msPCA.variance_moranI_decomposition(X)
+    variance, moranI = msPCA.variance_moransI_decomposition(X)
     I_min, I_max, I_0 = msPCA.moransI_bounds(sparse_approx=sparse_approx)
 
     fig, ax = plt.subplots(1)
