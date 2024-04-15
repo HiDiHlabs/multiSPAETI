@@ -130,7 +130,9 @@ class MultispatiPCA:
 
         assert isinstance(X, (np.ndarray, csc_array))
         if X.shape[0] != self.W.shape[0]:
-            raise ValueError("#rows in `X` must be same as size of `connectivity`")
+            raise ValueError(
+                "#rows in `X` must be the same as dimensions of `connectivity`"
+            )
         if self._n_pos is None:
             if issparse(X):
                 raise ValueError(
