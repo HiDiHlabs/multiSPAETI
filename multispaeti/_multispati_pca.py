@@ -157,7 +157,10 @@ class MultispatiPCA:
             # TODO fix can't return all eigenvalues of sparse matrix
             # TODO check that number of eigenvalues does not exceed d
             if self._n_pos is None:
-                raise ValueError
+                raise ValueError(
+                    "`n_components` is None, but `X` is a sparse matrix. None is only "
+                    "supported for dense matrices."
+                )
             elif self._n_pos == 0:
                 eig_val, eig_vec = sparse_linalg.eigsh(H, k=self._n_neg, which="SA")
             elif self._n_neg == 0:
