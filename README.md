@@ -1,4 +1,4 @@
-# multiSPAETI
+# multiSPAETI*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
@@ -8,8 +8,8 @@
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
 
 `multispaeti` is an implementation of
-`MULTISPATI-PCA <https://doi.org/10.3170/2007-8-18312>`_ /
-`spatialPCA <https://doi.org/10.1038/hdy.2008.34>`_.
+[MULTISPATI-PCA](https://doi.org/10.3170/2007-8-18312) /
+[spatialPCA](https://doi.org/10.1038/hdy.2008.34).
 
 ## Installation
 
@@ -29,3 +29,6 @@ This project follows the [SemVer](https://semver.org/) guidelines for versioning
 
 This project is licensed under the MIT License - for details please refer to the
 [LICENSE](./LICENSE) file.
+
+## Notes
+\* [Späti](https://en.wikipedia.org/wiki/Sp%C3%A4tkauf)
