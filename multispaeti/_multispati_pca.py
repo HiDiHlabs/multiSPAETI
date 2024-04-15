@@ -261,7 +261,10 @@ class MultispatiPCA:
         """
         if not self._fitted:
             self._not_fitted()
-        return self.W @ self.transform(X)
+        return self._spatial_lag(self.transform(X))
+
+    def _spatial_lag(self, X: np.ndarray) -> np.ndarray:
+        return self.W @ X
 
     def variance_moranI_decomposition(self, X: _X) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -285,7 +288,7 @@ class MultispatiPCA:
         if not self._fitted:
             self._not_fitted()
         transformed = self.transform(X)
-        lag = self.transform_spatial_lag(X)
+        lag = self._spatial_lag(transformed)
 
         # vector of row_Weights from dudi.PCA
         # (we only use default row_weights i.e. 1/n anyways)
