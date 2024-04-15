@@ -62,6 +62,8 @@ class MultispatiPCA:
 
         n = self.W.shape[0]
 
+        self.n_components = n_components
+
         self._n_neg = 0
         if n_components is None:
             self._n_pos = n_components
@@ -135,6 +137,8 @@ class MultispatiPCA:
 
         self.components_ = eig_vec
         self.eigenvalues_ = eig_val
+        self.n_components_ = eig_val.size
+        self.n_features_in_ = X.shape[1]
         self._fitted = True
 
     def _multispati_eigendecomposition(
