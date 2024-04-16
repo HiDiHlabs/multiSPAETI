@@ -13,6 +13,9 @@ def plot_eigenvalues(msPCA: MultispatiPCA, *, n_top: int | None = None) -> Figur
     Parameters
     ----------
     msPCA : MultispatiPCA
+        An instance of MultispatiPCA that has already been used for
+        :py:meth:`multispaeti.MultispatiPCA.fit` so that eigenvalues have already been
+        calculated.
     n_top : int, optional
         Plot the `n_top` highest and `n_top` lowest eigenvalues in a zoomed in view.
 
@@ -52,7 +55,7 @@ def plot_eigenvalues(msPCA: MultispatiPCA, *, n_top: int | None = None) -> Figur
 
 
 def plot_variance_moransI_decomposition(
-    msPCA: MultispatiPCA, X, *, sparse_approx: bool = True, **kwargs
+    msPCA: MultispatiPCA, *, sparse_approx: bool = True, **kwargs
 ) -> Figure:
     """
     Plot the decomposition of variance and Moran's I of the MULTISPATI-PCA eigenvalues.
@@ -63,8 +66,9 @@ def plot_variance_moransI_decomposition(
     Parameters
     ----------
     msPCA : multispaeti.MultispatiPCA
-    X : numpy.ndarray or scipy.sparse.csr_array or scipy.sparse.csc_array
-        TODO Data to calculate the decomposition for.
+        An instance of MultispatiPCA that has already been used for
+        :py:meth:`multispaeti.MultispatiPCA.transform` so that variance and Moran's I
+        contributions to the eigenvalues have already been calculated.
     sparse_approx : bool
         Whether to use a sparse approximation to calculate the decomposition.
 
@@ -73,11 +77,10 @@ def plot_variance_moransI_decomposition(
     matplotlib.figure.Figure
     """
 
-    variance, moranI = msPCA.variance_moransI_decomposition(X)
     I_min, I_max, I_0 = msPCA.moransI_bounds(sparse_approx=sparse_approx)
 
     fig, ax = plt.subplots(1)
-    _ = ax.scatter(x=variance, y=moranI, **kwargs)
+    _ = ax.scatter(x=msPCA.variance_, y=msPCA.moransI_, **kwargs)
 
     plt.axhline(y=I_0, ls="--")
     plt.axhline(y=I_min, ls="--")

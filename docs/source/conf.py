@@ -34,7 +34,7 @@ extensions = [
 
 autodoc_typehints = "none"
 autodoc_typehints_format = "short"
-autoclass_content = "both"
+autoclass_content = "class"
 autodoc_member_order = "groupwise"
 
 python_use_unqualified_type_names = True  # still experimental

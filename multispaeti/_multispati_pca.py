@@ -31,6 +31,53 @@ class MultispatiPCA:
     :math:`H=1/(2n)*X^t(W+W^t)X` where `X` is matrix of `n` observations :math:`\\times`
     `d` features, and `W` is a matrix of the connectivity between observations.
 
+    Parameters
+    ----------
+    n_components : int or tuple[int, int], optional
+        Number of components to keep.
+        If None, will keep all components (only supported for non-sparse `X`).
+        If an int, it will keep the top `n_components`.
+        If a tuple, it will keep the top and bottom `n_components` respectively.
+    connectivity : scipy.sparse.sparray or scipy.sparse.spmatrix
+        Matrix of row-wise neighbor definitions i.e. c\ :sub:`ij` is the connectivity of
+        i :math:`\\to` j. The matrix does not have to be symmetric. It can be a
+        binary adjacency matrix or a matrix of connectivities in which case
+        c\ :sub:`ij` should be larger if i and j are close.
+        A distance matrix should be transformed to connectivities by e.g.
+        calculating :math:`1-d/d_{max}` beforehand.
+
+    Raises
+    ------
+    ValueError
+        If connectivity is not a square matrix.
+    ZeroDivisionError
+        If one of the observations has no neighbors.
+
+    Attributes
+    ----------
+    components_ : numpy.ndarray
+        The estimated components: Array of shape `(n_components, n_features)`.
+
+    variance_ : numpy.ndarray
+        The estimated variance part of the eigenvalues. Array of shape `(n_components,)`.
+
+    moransI_ : numpy.ndarray
+        The estimated Moran's I part of the eigenvalues. Array of shape `(n_components,)`.
+
+    eigenvalues_ : numpy.ndarray
+        The eigenvalues corresponding to each of the selected components. Array of shape
+        `(n_components,)`.
+
+    n_components_ : int
+        The estimated number of components.
+
+    n_samples_ : int
+        Number of samples in the training data.
+
+    n_features_in_ : int
+        Number of features seen during :term:`fit`.
+
+
     References
     ----------
     `Dray, Stéphane, Sonia Saïd, and Françis Débias. "Spatial ordination of vegetation
@@ -47,29 +94,6 @@ class MultispatiPCA:
         *,
         connectivity: sparray | spmatrix,
     ):
-        """
-        Parameters
-        ----------
-
-        n_components : int or tuple[int, int], optional
-            Number of components to keep.
-            If None, will keep all components (only supported for non-sparse `X`).
-            If an int, it will keep the top `n_components`.
-            If a tuple, it will keep the top and bottom `n_components` respectively.
-        connectivity : scipy.sparse.sparray or scipy.sparse.spmatrix
-            Matrix of row-wise neighbor definitions i.e. c\ :sub:`ij` is the connectivity of
-            i :math:`\\to` j. The matrix does not have to be symmetric. It can be a
-            binary adjacency matrix or a matrix of connectivities in which case
-            c\ :sub:`ij` should be larger if i and j are close.
-            A distance matrix should be transformed to connectivities by e.g.
-            calculating :math:`1-d/d_{max}` beforehand.
-        Raises
-        ------
-        ValueError
-            If connectivity is not a square matrix.
-        ZeroDivisionError
-            If one of the observations has no neighbors.
-        """
         self._fitted = False
         W = csr_array(connectivity)
         if W.shape[0] != W.shape[1]:
@@ -247,7 +271,10 @@ class MultispatiPCA:
             self._not_fitted()
 
         X = scale(X, with_mean=not issparse(X))
-        return X @ self.components_
+        X_t = X @ self.components_
+        self.variance_, self.moransI_ = self._variance_moransI_decomposition(X_t)
+
+        return X_t
 
     def fit_transform(self, X: _X) -> np.ndarray:
         """
@@ -291,36 +318,17 @@ class MultispatiPCA:
     def _spatial_lag(self, X: np.ndarray) -> np.ndarray:
         return self.W @ X
 
-    def variance_moransI_decomposition(self, X: _X) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Calculate the decomposition of the variance and Moran's I for `n_components`.
-
-        Parameters
-        ----------
-        X : numpy.ndarray or scipy.sparse.csr_array or scipy.sparse.csc_array
-            Array of observations x features.
-
-        Returns
-        -------
-        tuple[numpy.ndarray, numpy.ndarray]
-            Variance and Moran's I.
-
-        Raises
-        ------
-        ValueError
-            If instance has not been fitted.
-        """
-        if not self._fitted:
-            self._not_fitted()
-        transformed = self.transform(X)
-        lag = self._spatial_lag(transformed)
+    def _variance_moransI_decomposition(
+        self, X_t: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        lag = self._spatial_lag(X_t)
 
         # vector of row_Weights from dudi.PCA
-        # (we only use default row_weights i.e. 1/n anyways)
-        w = 1 / X.shape[0]
+        # (we only use default row_weights i.e. 1/n)
+        w = 1 / X_t.shape[0]
 
-        variance = np.sum(transformed * transformed * w, axis=0)
-        moran = np.sum(transformed * lag * w, axis=0) / variance
+        variance = np.sum(X_t * X_t * w, axis=0)
+        moran = np.sum(X_t * lag * w, axis=0) / variance
 
         return variance, moran
 
