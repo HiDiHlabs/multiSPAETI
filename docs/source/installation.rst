@@ -2,16 +2,14 @@ Installation
 ============
 
 
-PyPi and ``pip``
+PyPI and ``pip``
 ----------------
 
-``multispaeti`` will soon be available to install from `PyPi <https://pypi.org/>`_.
+To install ``multispaeti`` from `PyPI <https://pypi.org/>`_ using ``pip`` just run
 
-.. To install ``multispaeti`` from `PyPi <https://pypi.org/>`_ using ``pip`` just run
+.. code-block:: bash
 
-.. .. code-block:: bash
-
-..     pip install multispaeti
+    pip install multispaeti
 
 
 conda-forge and ``conda``
