@@ -51,10 +51,3 @@ Alternatively, this can be achieved in one step by
 .. .. code-block:: python
 
 ..     X_transformed = msPCA.moransI_bounds()
-
-.. and :py:meth:`multispaeti.MultispatiPCA.variance_moransI_decomposition` which allows
-.. to decompose the extracted eigenvalues into a variance and Moran's `I` contribution.
-
-.. .. code-block:: python
-
-..     var, moranI = msPCA.variance_moransI_decomposition(X)
