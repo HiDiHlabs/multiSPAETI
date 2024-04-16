@@ -7,7 +7,7 @@
 [![Checked with mypy](https://www.mypy-lang.org/static/mypy_badge.svg)](http://mypy-lang.org/)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
 
-`multispaeti` is an implementation of
+`multispaeti` is a Python implementation of
 [MULTISPATI-PCA](https://doi.org/10.3170/2007-8-18312) /
 [spatialPCA](https://doi.org/10.1038/hdy.2008.34).
 

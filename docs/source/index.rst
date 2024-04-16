@@ -1,7 +1,7 @@
 What is ``multiSPAETI``?
 ========================
 
-``multispaeti`` is an  implementation of
+``multispaeti`` is a Python implementation of
 `MULTISPATI-PCA <https://doi.org/10.3170/2007-8-18312>`_ /
 `spatialPCA <https://doi.org/10.1038/hdy.2008.34>`_.
 
