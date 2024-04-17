@@ -7,7 +7,10 @@ from scipy import linalg
 from scipy.sparse import csc_array, csc_matrix, csr_array, csr_matrix, issparse
 from scipy.sparse import linalg as sparse_linalg
 from scipy.sparse import sparray, spmatrix
+from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import scale
+from sklearn.utils.sparsefuncs_fast import inplace_csr_row_normalize_l1
+from sklearn.utils.validation import check_array, check_is_fitted
 
 T = TypeVar("T", bound=np.number)
 U = TypeVar("U", bound=np.number)
@@ -18,7 +21,12 @@ _Csc: TypeAlias = csc_array | csc_matrix
 _X: TypeAlias = np.ndarray | _Csr | _Csc
 
 
-class MultispatiPCA:
+# TODO: should pass the following check
+# from sklearn.utils.estimator_checks import check_estimator
+# check_estimator(MultispatiPCA())
+
+
+class MultispatiPCA(TransformerMixin, BaseEstimator):
     """
     MULTISPATI-PCA
 
@@ -46,27 +54,20 @@ class MultispatiPCA:
         A distance matrix should be transformed to connectivities by e.g.
         calculating :math:`1-d/d_{max}` beforehand.
 
-    Raises
-    ------
-    ValueError
-        If connectivity is not a square matrix.
-    ZeroDivisionError
-        If one of the observations has no neighbors.
-
     Attributes
     ----------
     components_ : numpy.ndarray
         The estimated components: Array of shape `(n_components, n_features)`.
+
+    eigenvalues_ : numpy.ndarray
+        The eigenvalues corresponding to each of the selected components. Array of shape
+        `(n_components,)`.
 
     variance_ : numpy.ndarray
         The estimated variance part of the eigenvalues. Array of shape `(n_components,)`.
 
     moransI_ : numpy.ndarray
         The estimated Moran's I part of the eigenvalues. Array of shape `(n_components,)`.
-
-    eigenvalues_ : numpy.ndarray
-        The eigenvalues corresponding to each of the selected components. Array of shape
-        `(n_components,)`.
 
     n_components_ : int
         The estimated number of components.
@@ -92,17 +93,22 @@ class MultispatiPCA:
         self,
         n_components: int | tuple[int, int] | None = None,
         *,
-        connectivity: sparray | spmatrix,
+        connectivity: sparray | spmatrix | None = None,
     ):
-        self._fitted = False
-        W = csr_array(connectivity)
+        self.n_components = n_components
+        self.connectivity = connectivity
+
+    @staticmethod
+    def _validate_connectivity(W: csr_array, n: int):
         if W.shape[0] != W.shape[1]:
             raise ValueError("`connectivity` must be square")
-        self.W = self._normalize_connectivities(W)
+        if W.shape[0] != n:
+            raise ValueError(
+                "#rows in `X` must be the same as dimensions of `connectivity`"
+            )
 
-        n = self.W.shape[0]
-
-        self.n_components = n_components
+    def _validate_n_components(self, n: int):
+        n_components = self.n_components
 
         self._n_neg = 0
         if n_components is None:
@@ -127,13 +133,7 @@ class MultispatiPCA:
             else:
                 raise ValueError("`n_components` must be None, int or (int, int)")
 
-    @staticmethod
-    def _normalize_connectivities(W: csr_array) -> csr_array:
-        # normalize rowsums to 1 for better interpretability
-        # TODO can't handle points without neighbors because of division by zero
-        return W.multiply(1 / W.sum(axis=1)[:, np.newaxis])
-
-    def fit(self, X: _X):
+    def fit(self, X: _X, y: None = None):
         """
         Fit MULTISPATI-PCA projection.
 
@@ -141,6 +141,8 @@ class MultispatiPCA:
         ----------
         X : numpy.ndarray or scipy.sparse.csr_array or scipy.sparse.csc_array
             Array of observations x features.
+        y : None
+            Ignored. scikit-learn compatibility only.
 
         Raises
         ------
@@ -148,15 +150,28 @@ class MultispatiPCA:
             If `X` has not the same number of rows like `connectivity`.
             If `n_components` is None and `X` is sparse.
             If (sum of) `n_components` is larger than the smaller dimension of `X`.
+        ValueError
+            If connectivity is not a square matrix.
+        ZeroDivisionError
+            If one of the observations has no neighbors.
         """
+
+        X = check_array(X)
+        self.W = check_array(
+            self.connectivity, accept_sparse="csr", dtype=float
+        )  # TODO float32, float64?
+
+        n, d = X.shape
+
+        self._validate_connectivity(self.W, n)
+        self._validate_n_components(n)
+
+        inplace_csr_row_normalize_l1(self.W)
+
         if issparse(X):
             X = csc_array(X)
 
         assert isinstance(X, (np.ndarray, csc_array))
-        if X.shape[0] != self.W.shape[0]:
-            raise ValueError(
-                "#rows in `X` must be the same as dimensions of `connectivity`"
-            )
         if self._n_pos is None:
             if issparse(X):
                 raise ValueError(
@@ -164,7 +179,6 @@ class MultispatiPCA:
                     "supported for dense matrices."
                 )
         elif (self._n_pos + self._n_neg) > X.shape[1]:
-            n, d = X.shape
             n_comp = self._n_pos + self._n_neg
             n_comp_max = min(n, d)
             raise ValueError(
@@ -180,8 +194,13 @@ class MultispatiPCA:
         self.components_ = eig_vec
         self.eigenvalues_ = eig_val
         self.n_components_ = eig_val.size
-        self.n_features_in_ = X.shape[1]
-        self._fitted = True
+        self.n_features_in_ = d
+
+        self.variance_, self.moransI_ = self._variance_moransI_decomposition(
+            X @ self.components_
+        )
+
+        return self
 
     def _multispati_eigendecomposition(
         self, X: _X, W: _Csr
@@ -266,31 +285,10 @@ class MultispatiPCA:
         ValueError
             If instance has not been fitted.
         """
+        check_is_fitted(self)
         # Data must be scaled, avoid mean-centering for sparse
-        if not self._fitted:
-            self._not_fitted()
-
         X = scale(X, with_mean=not issparse(X))
-        X_t = X @ self.components_
-        self.variance_, self.moransI_ = self._variance_moransI_decomposition(X_t)
-
-        return X_t
-
-    def fit_transform(self, X: _X) -> np.ndarray:
-        """
-        Fit the MULTISPATI-PCA projection and transform the data.
-
-        Parameters
-        ----------
-        X : numpy.ndarray or scipy.sparse.csr_array or scipy.sparse.csc_array
-            Array of observations x features.
-
-        Returns
-        -------
-        numpy.ndarray
-        """
-        self.fit(X)
-        return self.transform(X)
+        return X @ self.components_
 
     def transform_spatial_lag(self, X: _X) -> np.ndarray:
         """
@@ -311,8 +309,7 @@ class MultispatiPCA:
         ValueError
             If instance has not been fitted.
         """
-        if not self._fitted:
-            self._not_fitted()
+        check_is_fitted(self)
         return self._spatial_lag(self.transform(X))
 
     def _spatial_lag(self, X: np.ndarray) -> np.ndarray:
@@ -351,9 +348,11 @@ class MultispatiPCA:
 
         # following R package adespatial::moran.bounds
         # sparse approx is following adegenet sPCA as shown in screeplot/summary
-        def double_center(W):
+        def double_center(W: np.ndarray | csr_array) -> np.ndarray:
             if issparse(W):
+                assert isinstance(W, csr_array)
                 W = W.toarray()
+            assert isinstance(W, np.ndarray)
 
             row_means = np.mean(W, axis=1, keepdims=True)
             col_means = np.mean(W, axis=0, keepdims=True) - np.mean(row_means)
@@ -381,9 +380,3 @@ class MultispatiPCA:
         I_max = max(eigen_values)
 
         return I_min, I_max, I_0
-
-    def _not_fitted(self):
-        raise ValueError(
-            "This MultispatiPCA instance is not fitted yet. "
-            "Call 'fit' with appropriate arguments first."
-        )
