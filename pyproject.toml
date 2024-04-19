@@ -28,7 +28,7 @@ classifiers = [
 [project.optional-dependencies]
 test = ["pytest"]
 docs = ["sphinx", "sphinx-copybutton", "sphinx-rtd-theme"]
-dev  = ["multispaeti[docs]", "pre-commit"]
+dev  = ["multispaeti[test,docs]", "pre-commit"]
 
 [project.urls]
 homepage      = "https://github.com/HiDiHlabs/multiSPAETI"
