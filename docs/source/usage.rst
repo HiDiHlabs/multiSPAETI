@@ -43,7 +43,7 @@ As for e.g. :py:class:`sklearn.decomposition.PCA` we first need to
 .. note::
 
     MultispatiPCA expects its input to be standardized by e.g. using
-    :py:func:`sklearn.decomposition.scale` before passing it to fit/transform.
+    :py:func:`sklearn.preprocessing.scale` before passing it to fit/transform.
 
 
 Alternatively, this can be achieved in one step by
