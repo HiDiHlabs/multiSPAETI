@@ -4,12 +4,15 @@ from typing import TypeAlias, TypeVar
 import numpy as np
 from numpy.typing import NDArray
 from scipy import linalg
-from scipy.sparse import csc_array, csc_matrix, csr_array, csr_matrix, issparse
+from scipy.sparse import csc_array, csc_matrix, csr_array, csr_matrix, eye, issparse
 from scipy.sparse import linalg as sparse_linalg
 from scipy.sparse import sparray, spmatrix
-from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.preprocessing import scale
-from sklearn.utils.sparsefuncs_fast import inplace_csr_row_normalize_l1
+from sklearn.base import (
+    BaseEstimator,
+    ClassNamePrefixFeaturesOutMixin,
+    TransformerMixin,
+)
+from sklearn.preprocessing import normalize
 from sklearn.utils.validation import check_array, check_is_fitted
 
 T = TypeVar("T", bound=np.number)
@@ -26,7 +29,7 @@ _X: TypeAlias = np.ndarray | _Csr | _Csc
 # check_estimator(MultispatiPCA())
 
 
-class MultispatiPCA(TransformerMixin, BaseEstimator):
+class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
     """
     MULTISPATI-PCA
 
@@ -86,8 +89,6 @@ class MultispatiPCA(TransformerMixin, BaseEstimator):
     Journal of vegetation science 19.1 (2008): 45-56.
     <https://onlinelibrary.wiley.com/doi/abs/10.3170/2007-8-18312>`_
     """
-
-    # TODO, should scaling be part of multispati
 
     def __init__(
         self,
@@ -157,16 +158,24 @@ class MultispatiPCA(TransformerMixin, BaseEstimator):
         """
 
         X = check_array(X)
-        self.W = check_array(
-            self.connectivity, accept_sparse="csr", dtype=float
-        )  # TODO float32, float64?
+        if self.connectivity is None:
+            warnings.warn(
+                "`connectivity` has not been set. Defaulting to identity matrix "
+                "which will conceptually compute a standard PCA. "
+                "It is not recommended to not set `connectivity`."
+            )
+            W = csr_array(eye(X.shape[0]))
+        else:
+            W = self.connectivity
+        W = check_array(W, accept_sparse="csr")
 
         n, d = X.shape
 
-        self._validate_connectivity(self.W, n)
+        self._validate_connectivity(W, n)
         self._validate_n_components(n)
 
-        inplace_csr_row_normalize_l1(self.W)
+        self.W_ = normalize(W, norm="l1")
+        assert isinstance(self.W_, csr_array)
 
         if issparse(X):
             X = csc_array(X)
@@ -186,14 +195,12 @@ class MultispatiPCA(TransformerMixin, BaseEstimator):
                 "can be calculated."
             )
 
-        # Data must be scaled, avoid mean-centering for sparse
-        X = scale(X, with_mean=not issparse(X))
-
-        eig_val, eig_vec = self._multispati_eigendecomposition(X, self.W)
+        eig_val, eig_vec = self._multispati_eigendecomposition(X, self.W_)
 
         self.components_ = eig_vec
         self.eigenvalues_ = eig_val
         self.n_components_ = eig_val.size
+        self._n_features_out = self.n_components_
         self.n_features_in_ = d
 
         self.variance_, self.moransI_ = self._variance_moransI_decomposition(
@@ -286,8 +293,7 @@ class MultispatiPCA(TransformerMixin, BaseEstimator):
             If instance has not been fitted.
         """
         check_is_fitted(self)
-        # Data must be scaled, avoid mean-centering for sparse
-        X = scale(X, with_mean=not issparse(X))
+        X = check_array(X)
         return X @ self.components_
 
     def transform_spatial_lag(self, X: _X) -> np.ndarray:
@@ -313,19 +319,19 @@ class MultispatiPCA(TransformerMixin, BaseEstimator):
         return self._spatial_lag(self.transform(X))
 
     def _spatial_lag(self, X: np.ndarray) -> np.ndarray:
-        return self.W @ X
+        return self.W_ @ X
 
     def _variance_moransI_decomposition(
-        self, X_t: np.ndarray
+        self, X_tr: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
-        lag = self._spatial_lag(X_t)
+        lag = self._spatial_lag(X_tr)
 
         # vector of row_Weights from dudi.PCA
         # (we only use default row_weights i.e. 1/n)
-        w = 1 / X_t.shape[0]
+        w = 1 / X_tr.shape[0]
 
-        variance = np.sum(X_t * X_t * w, axis=0)
-        moran = np.sum(X_t * lag * w, axis=0) / variance
+        variance = np.sum(X_tr * X_tr * w, axis=0)
+        moran = np.sum(X_tr * lag * w, axis=0) / variance
 
         return variance, moran
 
@@ -340,6 +346,7 @@ class MultispatiPCA(TransformerMixin, BaseEstimator):
         ----------
         sparse_approx : bool
             Only applicable if `connectivity` is sparse.
+
         Returns
         -------
         tuple[float, float, float]
@@ -360,7 +367,7 @@ class MultispatiPCA(TransformerMixin, BaseEstimator):
             return W - row_means - col_means
 
         # ensure symmetry
-        W = 0.5 * (self.W + self.W.T)
+        W = 0.5 * (self.W_ + self.W_.T)
 
         n_sample = W.shape[0]
         s = n_sample / np.sum(W)  # 1 if original W has rowSums or colSums of 1

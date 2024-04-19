@@ -26,6 +26,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+test = ["pytest"]
 docs = ["sphinx", "sphinx-copybutton", "sphinx-rtd-theme"]
 dev  = ["multispaeti[docs]", "pre-commit"]
 
@@ -56,3 +57,7 @@ target-version = "py310"
 ignore_missing_imports = true
 warn_no_return         = false
 packages               = "multispaeti"
+
+[tool.pytest.ini_options]
+addopts    = ["--import-mode=importlib"]
+pythonpath = "multispaeti"

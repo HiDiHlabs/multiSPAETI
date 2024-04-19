@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.figure import Figure
 from matplotlib.gridspec import GridSpec
+from sklearn.utils.validation import check_is_fitted
 
 from ._multispati_pca import MultispatiPCA
 
@@ -13,16 +14,21 @@ def plot_eigenvalues(msPCA: MultispatiPCA, *, n_top: int | None = None) -> Figur
     Parameters
     ----------
     msPCA : MultispatiPCA
-        An instance of MultispatiPCA that has already been used for
-        :py:meth:`multispaeti.MultispatiPCA.fit` so that eigenvalues have already been
-        calculated.
+        An instance of MultispatiPCA that has been fitted so that the eigenvalues
+        have been calculated.
     n_top : int, optional
         Plot the `n_top` highest and `n_top` lowest eigenvalues in a zoomed in view.
 
     Returns
     -------
     matplotlib.figure.Figure
+
+    Raises
+    ------
+    sklearn.exceptions.NotFittedError
+        If the MultispatiPCA has not been fitted.
     """
+    check_is_fitted(msPCA)
     eigenvalues = msPCA.eigenvalues_
 
     x_lbl, y_lbl = "Component", "Eigenvalue"
@@ -66,17 +72,23 @@ def plot_variance_moransI_decomposition(
     Parameters
     ----------
     msPCA : multispaeti.MultispatiPCA
-        An instance of MultispatiPCA that has already been used for
-        :py:meth:`multispaeti.MultispatiPCA.transform` so that variance and Moran's I
-        contributions to the eigenvalues have already been calculated.
+        An instance of MultispatiPCA that has been fitted so that variance and Moran's I
+        contributions to the eigenvalues have been calculated.
     sparse_approx : bool
         Whether to use a sparse approximation to calculate the decomposition.
+    kwargs
+        Other keyword arguments are passed to :py:func:`matplotlib.pyplot.scatter`
 
     Returns
     -------
     matplotlib.figure.Figure
-    """
 
+    Raises
+    ------
+    sklearn.exceptions.NotFittedError
+        If the MultispatiPCA has not been fitted.
+    """
+    check_is_fitted(msPCA)
     I_min, I_max, I_0 = msPCA.moransI_bounds(sparse_approx=sparse_approx)
 
     fig, ax = plt.subplots(1)

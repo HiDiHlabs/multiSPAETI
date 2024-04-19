@@ -34,15 +34,24 @@ As for e.g. :py:class:`sklearn.decomposition.PCA` we first need to
 
 .. code-block:: python
 
-    msPCA.fit(X)
-    X_transformed = msPCA.transform(X)
+    from sklearn.preprocessing import scale
+
+    X_scaled = scale(X)
+    msPCA.fit(X_scaled)
+    X_transformed = msPCA.transform(X_scaled)
+
+.. note::
+
+    MultispatiPCA expects its input to be standardized by e.g. using
+    :py:func:`sklearn.decomposition.scale` before passing it to fit/transform.
+
 
 Alternatively, this can be achieved in one step by
 :py:meth:`multispaeti.MultispatiPCA.fit_transform`
 
 .. code-block:: python
 
-    X_transformed = msPCA.fit_transform(X)
+    X_transformed = msPCA.fit_transform(X_scaled)
 
 .. Additional, functionality is offered through the method
 .. :py:meth:`multispaeti.MultispatiPCA.moransI_bounds` which calculates the minimum and
