@@ -201,7 +201,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         self.n_features_in_ = d
 
         self.variance_, self.moransI_ = self._variance_moransI_decomposition(
-            X @ self.components_
+            X @ self.components_.T
         )
 
         return self
@@ -262,7 +262,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                 eig_val = eig_val[component_indices]
                 eig_vec = eig_vec[:, component_indices]
 
-        return np.flip(eig_val), np.fliplr(eig_vec)
+        return np.flip(eig_val), np.flipud(eig_vec.T)
 
     @staticmethod
     def _get_component_indices(n: int, n_pos: int, n_neg: int) -> list[int]:
@@ -291,7 +291,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         """
         check_is_fitted(self)
         X = check_array(X)
-        return X @ self.components_
+        return X @ self.components_.T
 
     def transform_spatial_lag(self, X: _X) -> np.ndarray:
         """
