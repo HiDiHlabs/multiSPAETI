@@ -116,6 +116,5 @@ def plot_variance_moransI_decomposition(
 
 def _raise_matplotlib_load_error(e: Exception, fn: str):
     raise ModuleNotFoundError(
-        f"`{fn}` requires 'matplotlib' to be installed via the optional "
-        "'plot' module."
+        f"`{fn}` requires 'matplotlib' to be installed, e.g. via the 'plot' extra."
     ) from e
