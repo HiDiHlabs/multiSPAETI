@@ -148,13 +148,10 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         Raises
         ------
         ValueError
-            If `X` has not the same number of rows like `connectivity`.
+            If `X` does not have the same number of rows as `connectivity`.
             If `n_components` is None and `X` is sparse.
             If (sum of) `n_components` is larger than the smaller dimension of `X`.
-        ValueError
-            If connectivity is not a square matrix.
-        ZeroDivisionError
-            If one of the observations has no neighbors.
+            If `connectivity` is not a square matrix.
         """
 
         X = check_array(X)
@@ -289,7 +286,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
 
         Raises
         ------
-        ValueError
+        sklearn.exceptions.NotFittedError
             If instance has not been fitted.
         """
         check_is_fitted(self)
@@ -312,7 +309,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
 
         Raises
         ------
-        ValueError
+        sklearn.exceptions.NotFittedError
             If instance has not been fitted.
         """
         check_is_fitted(self)
