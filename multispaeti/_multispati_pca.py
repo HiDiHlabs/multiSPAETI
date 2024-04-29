@@ -24,11 +24,6 @@ _Csc: TypeAlias = csc_array | csc_matrix
 _X: TypeAlias = np.ndarray | _Csr | _Csc
 
 
-# TODO: should pass the following check
-# from sklearn.utils.estimator_checks import check_estimator
-# check_estimator(MultispatiPCA())
-
-
 class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
     """
     MULTISPATI-PCA
@@ -71,6 +66,10 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
 
     moransI_ : numpy.ndarray
         The estimated Moran's I part of the eigenvalues. Array of shape `(n_components,)`.
+
+    mean_ : numpy.ndarray or None
+        Per-feature empirical mean, estimated from the training set if `X` is not sparse.
+        Array of shape `(n_features,)`.
 
     n_components_ : int
         The estimated number of components.
@@ -192,7 +191,15 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                 "can be calculated."
             )
 
-        eig_val, eig_vec = self._multispati_eigendecomposition(X, self.W_)
+        if issparse(X):
+            self.mean_ = None
+            X_centered = X
+        else:
+            self.mean_ = X.mean(axis=0)
+            X_centered = X - self.mean_
+            assert isinstance(X_centered, np.ndarray)
+
+        eig_val, eig_vec = self._multispati_eigendecomposition(X_centered, self.W_)
 
         self.components_ = eig_vec
         self.eigenvalues_ = eig_val
@@ -201,7 +208,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         self.n_features_in_ = d
 
         self.variance_, self.moransI_ = self._variance_moransI_decomposition(
-            X @ self.components_.T
+            X_centered @ self.components_.T
         )
 
         return self
@@ -209,7 +216,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
     def _multispati_eigendecomposition(
         self, X: _X, W: _Csr
     ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-        # X: beads/bin x gene, must be standardized
+        # X: observations x features
         # W: row-wise definition of neighbors, row-sums should be 1
         def remove_zero_eigenvalues(
             eigen_values: NDArray[T], eigen_vectors: NDArray[U], n: int
@@ -291,6 +298,9 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         """
         check_is_fitted(self)
         X = check_array(X)
+        if self.mean_ is not None:
+            if not issparse(X):
+                X = X - self.mean_
         return X @ self.components_.T
 
     def transform_spatial_lag(self, X: _X) -> np.ndarray:
@@ -323,8 +333,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
     ) -> tuple[np.ndarray, np.ndarray]:
         lag = self._spatial_lag(X_tr)
 
-        # vector of row_Weights from dudi.PCA
-        # (we only use default row_weights i.e. 1/n)
+        # vector of row_Weights from dudi.PCA (we only use default row_weights i.e. 1/n)
         w = 1 / X_tr.shape[0]
 
         variance = np.sum(X_tr * X_tr * w, axis=0)
