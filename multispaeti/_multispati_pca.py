@@ -6,7 +6,6 @@ from numpy.typing import NDArray
 from scipy import linalg
 from scipy.sparse import csc_array, csc_matrix, csr_array, csr_matrix, eye, issparse
 from scipy.sparse import linalg as sparse_linalg
-from scipy.sparse import sparray, spmatrix
 from sklearn.base import (
     BaseEstimator,
     ClassNamePrefixFeaturesOutMixin,
@@ -22,6 +21,7 @@ U = TypeVar("U", bound=np.number)
 _Csr: TypeAlias = csr_array | csr_matrix
 _Csc: TypeAlias = csc_array | csc_matrix
 _X: TypeAlias = np.ndarray | _Csr | _Csc
+_Connectivity: TypeAlias = np.ndarray | _Csr
 
 
 class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
@@ -93,13 +93,13 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         self,
         n_components: int | tuple[int, int] | None = None,
         *,
-        connectivity: sparray | spmatrix | None = None,
+        connectivity: _Connectivity | None = None,
     ):
         self.n_components = n_components
         self.connectivity = connectivity
 
     @staticmethod
-    def _validate_connectivity(W: csr_array, n: int):
+    def _validate_connectivity(W: _Connectivity, n: int):
         if W.shape[0] != W.shape[1]:
             raise ValueError("`connectivity` must be square")
         if W.shape[0] != n:
@@ -199,7 +199,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         return self
 
     def _multispati_eigendecomposition(
-        self, X: _X, W: _Csr
+        self, X: _X, W: _Connectivity
     ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         # X: observations x features
         # W: row-wise definition of neighbors, row-sums should be 1
