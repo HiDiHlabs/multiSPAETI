@@ -175,12 +175,6 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         self._validate_n_components(n, d)
 
         self.W_ = normalize(W, norm="l1")
-        assert isinstance(self.W_, csr_array)
-
-        if issparse(X):
-            X = csc_array(X)
-
-        assert isinstance(X, (np.ndarray, csc_array))
 
         if issparse(X):
             self.mean_ = None
@@ -286,9 +280,8 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         """
         check_is_fitted(self)
         X = check_array(X, accept_sparse=["csr", "csc"])
-        if self.mean_ is not None:
-            if not issparse(X):
-                X = X - self.mean_
+        if self.mean_ is not None and not issparse(X):
+            X = X - self.mean_
         return X @ self.components_.T
 
     def transform_spatial_lag(self, X: _X) -> np.ndarray:
