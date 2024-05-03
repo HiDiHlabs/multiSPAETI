@@ -225,7 +225,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                 case (0, n_neg):
                     eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_neg, which="SA")
                 case (n_pos, n_neg):
-                    n_comp = max(2 * max(n_neg, n_pos), max(n, d))
+                    n_comp = min(2 * max(n_neg, n_pos), min(n, d))
                     eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_comp, which="BE")
                     component_indices = self._get_component_indices(
                         n_comp, n_pos, n_neg
