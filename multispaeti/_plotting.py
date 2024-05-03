@@ -1,12 +1,14 @@
-import matplotlib.pyplot as plt
+from typing import TYPE_CHECKING
+
 import numpy as np
-from matplotlib.figure import Figure
-from matplotlib.gridspec import GridSpec
 
 from ._multispati_pca import MultispatiPCA
 
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 
-def plot_eigenvalues(msPCA: MultispatiPCA, *, n_top: int | None = None) -> Figure:
+
+def plot_eigenvalues(msPCA: MultispatiPCA, *, n_top: int | None = None) -> "Figure":
     """
     Plot the eigenvalues of the MULTISPATI-PCA.
 
@@ -22,7 +24,18 @@ def plot_eigenvalues(msPCA: MultispatiPCA, *, n_top: int | None = None) -> Figur
     Returns
     -------
     matplotlib.figure.Figure
+
+    Raises
+    ------
+    ModuleNotFoundError
+        If `matplotlib` is not installed.
     """
+    try:
+        import matplotlib.pyplot as plt
+        from matplotlib.gridspec import GridSpec
+    except ModuleNotFoundError as e:
+        _raise_matplotlib_load_error(e, "plot_eigenvalues")
+
     eigenvalues = msPCA.eigenvalues_
 
     x_lbl, y_lbl = "Component", "Eigenvalue"
@@ -56,7 +69,7 @@ def plot_eigenvalues(msPCA: MultispatiPCA, *, n_top: int | None = None) -> Figur
 
 def plot_variance_moransI_decomposition(
     msPCA: MultispatiPCA, *, sparse_approx: bool = True, **kwargs
-) -> Figure:
+) -> "Figure":
     """
     Plot the decomposition of variance and Moran's I of the MULTISPATI-PCA eigenvalues.
 
@@ -75,7 +88,16 @@ def plot_variance_moransI_decomposition(
     Returns
     -------
     matplotlib.figure.Figure
+
+    Raises
+    ------
+    ModuleNotFoundError
+        If `matplotlib` is not installed.
     """
+    try:
+        import matplotlib.pyplot as plt
+    except ModuleNotFoundError as e:
+        _raise_matplotlib_load_error(e, "plot_variance_moransI_decomposition")
 
     I_min, I_max, I_0 = msPCA.moransI_bounds(sparse_approx=sparse_approx)
 
@@ -90,3 +112,9 @@ def plot_variance_moransI_decomposition(
     _ = ax.set(xlabel="Variance", ylabel="Moran's I")
 
     return fig
+
+
+def _raise_matplotlib_load_error(e: Exception, fn: str):
+    raise ModuleNotFoundError(
+        f"`{fn}` requires 'matplotlib' to be installed, e.g. via the 'plot' extra."
+    ) from e

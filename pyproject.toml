@@ -14,7 +14,7 @@ dynamic         = ["version"]
 authors = [
     { name = "Niklas Müller-Bötticher", email = "niklas.mueller-boetticher@charite.de" },
 ]
-dependencies = ["matplotlib", "numpy>=1.21", "scikit-learn", "scipy>=1.9"]
+dependencies = ["numpy>=1.21", "scikit-learn", "scipy>=1.9"]
 classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
@@ -26,8 +26,9 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+plot = ["matplotlib"]
 docs = ["sphinx", "sphinx-copybutton", "sphinx-rtd-theme"]
-dev  = ["multispaeti[docs]", "pre-commit"]
+dev  = ["multispaeti[plot,docs]", "pre-commit"]
 
 [project.urls]
 homepage      = "https://github.com/HiDiHlabs/multiSPAETI"
