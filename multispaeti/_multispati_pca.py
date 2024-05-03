@@ -41,9 +41,9 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
     ----------
     n_components : int or tuple[int, int], optional
         Number of components to keep.
-        If None, will keep all components (only supported for non-sparse `X`).
+        If None, will keep all components.
         If an int, it will keep the top `n_components`.
-        If a tuple, it will keep the top and bottom `n_components` respectively.
+        If a tuple, it will keep the top and bottom `n_components`, respectively.
     connectivity : scipy.sparse.sparray or scipy.sparse.spmatrix
         Matrix of row-wise neighbor definitions i.e. c\ :sub:`ij` is the connectivity of
         i :math:`\\to` j. The matrix does not have to be symmetric. It can be a
@@ -107,29 +107,34 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                 "#rows in `X` must be the same as dimensions of `connectivity`"
             )
 
-    def _validate_n_components(self, n: int):
-        n_components = self.n_components
+    def _validate_n_components(self, n: int, d: int):
+        self._n_components = self.n_components
 
-        self._n_neg = 0
-        if n_components is None:
-            self._n_pos = n_components
-        else:
-            if isinstance(n_components, int):
-                if n_components > n:
+        m = min(n, d)
+
+        if self.n_components is not None:
+            if isinstance(self.n_components, int):
+                if self.n_components <= 0:
+                    raise ValueError("`n_components` must be a positive integer.")
+                elif self.n_components >= m:
                     warnings.warn(
-                        "`n_components` should be less or equal than "
-                        f"#rows of `connectivity`. Using {n} components."
+                        "`n_components` should be less than minimum of "
+                        "#samples and #features. Using all components."
                     )
-                self._n_pos = min(n_components, n)
-            elif isinstance(n_components, tuple) and len(n_components) == 2:
-                if n < n_components[0] + n_components[1]:
+                self._n_components = None
+            elif isinstance(self.n_components, tuple) and len(self.n_components) == 2:
+                if any(
+                    not isinstance(i, int) or i < 0 for i in self.n_components
+                ) or self.n_components == (0, 0):
+                    raise ValueError(
+                        "`n_components` must be a tuple of positive integers."
+                    )
+                elif sum(self.n_components) >= m:
                     warnings.warn(
-                        "Sum of `n_components` should be less or equal than "
-                        f"#rows of `connectivity`. Using {n} components."
+                        "Sum of `n_components` should be less than minimum of "
+                        "#samples and #features. Using all components."
                     )
-                    self._n_pos = n
-                else:
-                    self._n_pos, self._n_neg = n_components
+                    self._n_components = None
             else:
                 raise ValueError("`n_components` must be None, int or (int, int)")
 
@@ -148,8 +153,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         ------
         ValueError
             If `X` does not have the same number of rows as `connectivity`.
-            If `n_components` is None and `X` is sparse.
-            If (sum of) `n_components` is larger than the smaller dimension of `X`.
+            If `n_components` has the wrong type or is negative.
             If `connectivity` is not a square matrix.
         """
 
@@ -168,7 +172,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         n, d = X.shape
 
         self._validate_connectivity(W, n)
-        self._validate_n_components(n)
+        self._validate_n_components(n, d)
 
         self.W_ = normalize(W, norm="l1")
         assert isinstance(self.W_, csr_array)
@@ -177,19 +181,6 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
             X = csc_array(X)
 
         assert isinstance(X, (np.ndarray, csc_array))
-        if self._n_pos is None:
-            if issparse(X):
-                raise ValueError(
-                    "`n_components` is None, but `X` is a sparse matrix. None is only "
-                    "supported for dense matrices."
-                )
-        elif (self._n_pos + self._n_neg) > X.shape[1]:
-            n_comp = self._n_pos + self._n_neg
-            n_comp_max = min(n, d)
-            raise ValueError(
-                f"Requested {n_comp} components but given `X` at most {n_comp_max} "
-                "can be calculated."
-            )
 
         if issparse(X):
             self.mean_ = None
@@ -230,44 +221,41 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         H = (X.T @ (W + W.T) @ X) / (2 * n)
         # TODO handle sparse based on density?
         if issparse(H):
-            # TODO fix can't return all eigenvalues of sparse matrix
-            # TODO check that number of eigenvalues does not exceed d
-            if self._n_pos is None:
-                raise ValueError(
-                    "`n_components` is None, but `X` is a sparse matrix. None is only "
-                    "supported for dense matrices."
-                )
-            elif self._n_pos == 0:
-                eig_val, eig_vec = sparse_linalg.eigsh(H, k=self._n_neg, which="SA")
-            elif self._n_neg == 0:
-                eig_val, eig_vec = sparse_linalg.eigsh(H, k=self._n_pos, which="LA")
-            else:
-                n_comp = 2 * max(self._n_neg, self._n_pos)
-                eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_comp, which="BE")
-                component_indices = self._get_component_indices(
-                    n_comp, self._n_pos, self._n_neg
-                )
-                eig_val = eig_val[component_indices]
-                eig_vec = eig_vec[:, component_indices]
+            match self._n_components:
+                case None:
+                    eig_val, eig_vec = sparse_linalg.eigsh(
+                        H, k=min(n, d) - 1, which="LM"
+                    )
+                case (n_pos, 0) | int(n_pos):
+                    eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_pos, which="LA")
+                case (0, n_neg):
+                    eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_neg, which="SA")
+                case (n_pos, n_neg):
+                    n_comp = max(2 * max(n_neg, n_pos), max(n, d))
+                    eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_comp, which="BE")
+                    component_indices = self._get_component_indices(
+                        n_comp, n_pos, n_neg
+                    )
+                    eig_val = eig_val[component_indices]
+                    eig_vec = eig_vec[:, component_indices]
 
         else:
-            if self._n_pos is None:
-                eig_val, eig_vec = linalg.eigh(H)
-                if n < d:
-                    eig_val, eig_vec = remove_zero_eigenvalues(eig_val, eig_vec, n)
-            elif self._n_pos == 0:
-                eig_val, eig_vec = linalg.eigh(H, subset_by_index=[0, self._n_neg])
-            elif self._n_neg == 0:
-                eig_val, eig_vec = linalg.eigh(
-                    H, subset_by_index=[d - self._n_pos, d - 1]
-                )
-            else:
-                eig_val, eig_vec = linalg.eigh(H)
-                component_indices = self._get_component_indices(
-                    d, self._n_pos, self._n_neg
-                )
-                eig_val = eig_val[component_indices]
-                eig_vec = eig_vec[:, component_indices]
+            match self._n_components:
+                case None:
+                    eig_val, eig_vec = linalg.eigh(H)
+                    if n < d:
+                        eig_val, eig_vec = remove_zero_eigenvalues(eig_val, eig_vec, n)
+                case (n_pos, 0) | int(n_pos):
+                    eig_val, eig_vec = linalg.eigh(
+                        H, subset_by_index=[d - n_pos, d - 1]
+                    )
+                case (0, n_neg):
+                    eig_val, eig_vec = linalg.eigh(H, subset_by_index=[0, n_neg])
+                case (n_pos, n_neg):
+                    eig_val, eig_vec = linalg.eigh(H)
+                    component_indices = self._get_component_indices(d, n_pos, n_neg)
+                    eig_val = eig_val[component_indices]
+                    eig_vec = eig_vec[:, component_indices]
 
         return np.flip(eig_val), np.flipud(eig_vec.T)
 
