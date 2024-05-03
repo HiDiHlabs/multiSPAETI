@@ -362,12 +362,9 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         if not issparse(W) or not sparse_approx:
             W = double_center(W)
 
-        if issparse(W):
-            eigen_values = s * sparse_linalg.eigsh(
-                W, k=2, which="BE", return_eigenvectors=False
-            )
-        else:
-            eigen_values = s * linalg.eigvalsh(W, overwrite_a=True)
+        eigen_values = s * sparse_linalg.eigsh(
+            W, k=2, which="BE", return_eigenvectors=False
+        )
 
         I_0 = -1 / (n_sample - 1)
         I_min = min(eigen_values)
