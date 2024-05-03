@@ -153,7 +153,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
             If `connectivity` is not a square matrix.
         """
 
-        X = check_array(X)
+        X = check_array(X, accept_sparse=["csr", "csc"])
         if self.connectivity is None:
             warnings.warn(
                 "`connectivity` has not been set. Defaulting to identity matrix "
@@ -297,7 +297,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
             If instance has not been fitted.
         """
         check_is_fitted(self)
-        X = check_array(X)
+        X = check_array(X, accept_sparse=["csr", "csc"])
         if self.mean_ is not None:
             if not issparse(X):
                 X = X - self.mean_
