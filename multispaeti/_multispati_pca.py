@@ -156,6 +156,10 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
             If `n_components` has the wrong type or is negative.
             If `connectivity` is not a square matrix.
         """
+        self._fit(X)
+        return self
+
+    def _fit(self, X: _X, *, return_transform: bool = False) -> np.ndarray | None:
 
         X = check_array(X, accept_sparse=["csr", "csc"])
         if self.connectivity is None:
@@ -192,11 +196,11 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         self._n_features_out = self.n_components_
         self.n_features_in_ = d
 
-        self.variance_, self.moransI_ = self._variance_moransI_decomposition(
-            X_centered @ self.components_.T
-        )
+        X_tr = X_centered @ self.components_.T
+        self.variance_, self.moransI_ = self._variance_moransI_decomposition(X_tr)
 
-        return self
+        if return_transform:
+            return X_tr
 
     def _multispati_eigendecomposition(
         self, X: _X, W: _Connectivity
@@ -283,6 +287,27 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         if self.mean_ is not None and not issparse(X):
             X = X - self.mean_
         return X @ self.components_.T
+
+    def fit_transform(self, X: _X, y: None = None) -> np.ndarray:
+        """
+        Fit and transform the data using MULTISPATI-PCA projection.
+
+        See :py:meth:`multispaeti.MultispatiPCA` for more information.
+
+        Parameters
+        ----------
+        X : numpy.ndarray or scipy.sparse.csr_array or scipy.sparse.csc_array
+            Array of observations x features.
+        y : None
+            Ignored. scikit-learn compatibility only.
+
+        Returns
+        -------
+        numpy.ndarray
+        """
+        X_tr = self._fit(X, return_transform=True)
+        assert isinstance(X_tr, np.ndarray)
+        return X_tr
 
     def transform_spatial_lag(self, X: _X) -> np.ndarray:
         """
