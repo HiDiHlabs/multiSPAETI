@@ -51,6 +51,10 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         c\ :sub:`ij` should be larger if i and j are close.
         A distance matrix should be transformed to connectivities by e.g.
         calculating :math:`1-d/d_{max}` beforehand.
+    center_sparse : bool
+        Whether to center `X` if it is a sparse array. By default sparse `X` will not be
+        centered as this requires transforming it to a dense array, potentially raising
+        out-of-memory errors.
 
     Attributes
     ----------
@@ -94,9 +98,11 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         n_components: int | tuple[int, int] | None = None,
         *,
         connectivity: _Connectivity | None = None,
+        center_sparse: bool = False,
     ):
         self.n_components = n_components
         self.connectivity = connectivity
+        self.center_sparse = center_sparse
 
     @staticmethod
     def _validate_connectivity(W: _Connectivity, n: int):
@@ -179,6 +185,10 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         self._validate_n_components(n, d)
 
         self.W_ = normalize(W, norm="l1")
+
+        if self.center_sparse and issparse(X):
+            assert isinstance(X, (csr_array, csr_matrix, csc_array, csc_matrix))
+            X = X.toarray()
 
         if issparse(X):
             self.mean_ = None
