@@ -13,7 +13,7 @@
 
 ## Installation
 
-`multispaeti` is available from [PyPI](https://pypi.org/project/multispaeti/) 
+`multispaeti` is available from [PyPI](https://pypi.org/project/multispaeti/)
 
 ```bash
 pip install multispaeti
@@ -25,7 +25,7 @@ and [conda-forge](https://anaconda.org/conda-forge/multispaeti)
 conda install conda-forge::multispaeti
 ```
 
-For detailed installation instructions please refer to the 
+For detailed installation instructions please refer to the
 [documentation](https://multispaeti.readthedocs.io/en/stable/installation.html).
 
 ## Documentation
