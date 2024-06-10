@@ -39,8 +39,7 @@ As for e.g. :py:class:`sklearn.decomposition.PCA` we first need to
 
 
 Alternatively, this can be achieved in one step by
-:py:meth:`multispaeti.MultispatiPCA.fit_transform` which is also more performant and
-avoids redundant computation
+:py:meth:`multispaeti.MultispatiPCA.fit_transform` which avoids redundant computation.
 
 .. code-block:: python
 
