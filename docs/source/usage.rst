@@ -37,8 +37,9 @@ As for e.g. :py:class:`sklearn.decomposition.PCA` we first need to
     msPCA.fit(X)
     X_transformed = msPCA.transform(X)
 
+
 Alternatively, this can be achieved in one step by
-:py:meth:`multispaeti.MultispatiPCA.fit_transform`
+:py:meth:`multispaeti.MultispatiPCA.fit_transform` which avoids redundant computation.
 
 .. code-block:: python
 

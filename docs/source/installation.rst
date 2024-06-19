@@ -2,34 +2,29 @@ Installation
 ============
 
 
-PyPi and ``pip``
+PyPI and ``pip``
 ----------------
 
-``multispaeti`` will soon be available to install from `PyPi <https://pypi.org/>`_.
+To install ``multispaeti`` from `PyPI <https://pypi.org/>`_ using ``pip`` just run
 
-.. To install ``multispaeti`` from `PyPi <https://pypi.org/>`_ using ``pip`` just run
+.. code-block:: bash
 
-.. .. code-block:: bash
-
-..     pip install multispaeti
+    pip install multispaeti
 
 
 conda-forge and ``conda``
 -------------------------
 
-``multispaeti`` is not yet available for
-`Miniconda <https://docs.conda.io/en/latest/miniconda.html>`_ installations. But we are
-planning to add it to `conda-forge <https://conda-forge.org/>`_ soon.
+``multispaeti`` can also be installed from `conda-forge <https://conda-forge.org/>`_ via
 
+.. code-block:: bash
 
-.. .. code-block:: bash
+    conda install conda-forge::multispaeti
 
-..     conda install -c conda-forge multispaeti
+.. note::
 
-.. .. note::
-
-..     Of course, it is also possible to use ``mamba`` instead of ``conda``
-..     to speed up the installation.
+    Of course, it is also possible to use ``mamba`` instead of ``conda``
+    to speed up the installation.
 
 
 From GitHub

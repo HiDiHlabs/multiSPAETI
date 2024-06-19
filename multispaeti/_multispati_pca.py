@@ -4,10 +4,15 @@ from typing import TypeAlias, TypeVar
 import numpy as np
 from numpy.typing import NDArray
 from scipy import linalg
-from scipy.sparse import csc_array, csc_matrix, csr_array, csr_matrix, issparse
+from scipy.sparse import csc_array, csc_matrix, csr_array, csr_matrix, eye, issparse
 from scipy.sparse import linalg as sparse_linalg
-from scipy.sparse import sparray, spmatrix
-from sklearn.preprocessing import scale
+from sklearn.base import (
+    BaseEstimator,
+    ClassNamePrefixFeaturesOutMixin,
+    TransformerMixin,
+)
+from sklearn.preprocessing import normalize
+from sklearn.utils.validation import check_array, check_is_fitted
 
 T = TypeVar("T", bound=np.number)
 U = TypeVar("U", bound=np.number)
@@ -16,9 +21,10 @@ U = TypeVar("U", bound=np.number)
 _Csr: TypeAlias = csr_array | csr_matrix
 _Csc: TypeAlias = csc_array | csc_matrix
 _X: TypeAlias = np.ndarray | _Csr | _Csc
+_Connectivity: TypeAlias = np.ndarray | _Csr
 
 
-class MultispatiPCA:
+class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
     """
     MULTISPATI-PCA
 
@@ -35,9 +41,9 @@ class MultispatiPCA:
     ----------
     n_components : int or tuple[int, int], optional
         Number of components to keep.
-        If None, will keep all components (only supported for non-sparse `X`).
+        If None, will keep all components.
         If an int, it will keep the top `n_components`.
-        If a tuple, it will keep the top and bottom `n_components` respectively.
+        If a tuple, it will keep the top and bottom `n_components`, respectively.
     connectivity : scipy.sparse.sparray or scipy.sparse.spmatrix
         Matrix of row-wise neighbor definitions i.e. c\ :sub:`ij` is the connectivity of
         i :math:`\\to` j. The matrix does not have to be symmetric. It can be a
@@ -45,18 +51,19 @@ class MultispatiPCA:
         c\ :sub:`ij` should be larger if i and j are close.
         A distance matrix should be transformed to connectivities by e.g.
         calculating :math:`1-d/d_{max}` beforehand.
-
-    Raises
-    ------
-    ValueError
-        If connectivity is not a square matrix.
-    ZeroDivisionError
-        If one of the observations has no neighbors.
+    center_sparse : bool
+        Whether to center `X` if it is a sparse array. By default sparse `X` will not be
+        centered as this requires transforming it to a dense array, potentially raising
+        out-of-memory errors.
 
     Attributes
     ----------
     components_ : numpy.ndarray
         The estimated components: Array of shape `(n_components, n_features)`.
+
+    eigenvalues_ : numpy.ndarray
+        The eigenvalues corresponding to each of the selected components. Array of shape
+        `(n_components,)`.
 
     variance_ : numpy.ndarray
         The estimated variance part of the eigenvalues. Array of shape `(n_components,)`.
@@ -64,9 +71,9 @@ class MultispatiPCA:
     moransI_ : numpy.ndarray
         The estimated Moran's I part of the eigenvalues. Array of shape `(n_components,)`.
 
-    eigenvalues_ : numpy.ndarray
-        The eigenvalues corresponding to each of the selected components. Array of shape
-        `(n_components,)`.
+    mean_ : numpy.ndarray or None
+        Per-feature empirical mean, estimated from the training set if `X` is not sparse.
+        Array of shape `(n_features,)`.
 
     n_components_ : int
         The estimated number of components.
@@ -86,54 +93,58 @@ class MultispatiPCA:
     <https://onlinelibrary.wiley.com/doi/abs/10.3170/2007-8-18312>`_
     """
 
-    # TODO, should scaling be part of multispati
-
     def __init__(
         self,
         n_components: int | tuple[int, int] | None = None,
         *,
-        connectivity: sparray | spmatrix,
+        connectivity: _Connectivity | None = None,
+        center_sparse: bool = False,
     ):
-        self._fitted = False
-        W = csr_array(connectivity)
+        self.n_components = n_components
+        self.connectivity = connectivity
+        self.center_sparse = center_sparse
+
+    @staticmethod
+    def _validate_connectivity(W: _Connectivity, n: int):
         if W.shape[0] != W.shape[1]:
             raise ValueError("`connectivity` must be square")
-        self.W = self._normalize_connectivities(W)
+        if W.shape[0] != n:
+            raise ValueError(
+                "#rows in `X` must be the same as dimensions of `connectivity`"
+            )
 
-        n = self.W.shape[0]
+    def _validate_n_components(self, n: int, d: int):
+        self._n_components = self.n_components
 
-        self.n_components = n_components
+        m = min(n, d)
 
-        self._n_neg = 0
-        if n_components is None:
-            self._n_pos = n_components
-        else:
-            if isinstance(n_components, int):
-                if n_components > n:
+        if self.n_components is not None:
+            if isinstance(self.n_components, int):
+                if self.n_components <= 0:
+                    raise ValueError("`n_components` must be a positive integer.")
+                elif self.n_components >= m:
                     warnings.warn(
-                        "`n_components` should be less or equal than "
-                        f"#rows of `connectivity`. Using {n} components."
+                        "`n_components` should be less than minimum of "
+                        "#samples and #features. Using all components."
                     )
-                self._n_pos = min(n_components, n)
-            elif isinstance(n_components, tuple) and len(n_components) == 2:
-                if n < n_components[0] + n_components[1]:
+                self._n_components = None
+            elif isinstance(self.n_components, tuple) and len(self.n_components) == 2:
+                if any(
+                    not isinstance(i, int) or i < 0 for i in self.n_components
+                ) or self.n_components == (0, 0):
+                    raise ValueError(
+                        "`n_components` must be a tuple of positive integers."
+                    )
+                elif sum(self.n_components) >= m:
                     warnings.warn(
-                        "Sum of `n_components` should be less or equal than "
-                        f"#rows of `connectivity`. Using {n} components."
+                        "Sum of `n_components` should be less than minimum of "
+                        "#samples and #features. Using all components."
                     )
-                    self._n_pos = n
-                else:
-                    self._n_pos, self._n_neg = n_components
+                    self._n_components = None
             else:
                 raise ValueError("`n_components` must be None, int or (int, int)")
 
-    @staticmethod
-    def _normalize_connectivities(W: csr_array) -> csr_array:
-        # normalize rowsums to 1 for better interpretability
-        # TODO can't handle points without neighbors because of division by zero
-        return W.multiply(1 / W.sum(axis=1)[:, np.newaxis])
-
-    def fit(self, X: _X):
+    def fit(self, X: _X, y: None = None):
         """
         Fit MULTISPATI-PCA projection.
 
@@ -141,52 +152,70 @@ class MultispatiPCA:
         ----------
         X : numpy.ndarray or scipy.sparse.csr_array or scipy.sparse.csc_array
             Array of observations x features.
+        y : None
+            Ignored. scikit-learn compatibility only.
 
         Raises
         ------
         ValueError
-            If `X` has not the same number of rows like `connectivity`.
-            If `n_components` is None and `X` is sparse.
-            If (sum of) `n_components` is larger than the smaller dimension of `X`.
+            If `X` does not have the same number of rows as `connectivity`.
+            If `n_components` has the wrong type or is negative.
+            If `connectivity` is not a square matrix.
         """
+        self._fit(X)
+        return self
+
+    def _fit(self, X: _X, *, return_transform: bool = False) -> np.ndarray | None:
+
+        X = check_array(X, accept_sparse=["csr", "csc"])
+        if self.connectivity is None:
+            warnings.warn(
+                "`connectivity` has not been set. Defaulting to identity matrix "
+                "which will conceptually compute a standard PCA. "
+                "It is not recommended to not set `connectivity`."
+            )
+            W = csr_array(eye(X.shape[0]))
+        else:
+            W = self.connectivity
+        W = check_array(W, accept_sparse="csr")
+
+        n, d = X.shape
+
+        self._validate_connectivity(W, n)
+        self._validate_n_components(n, d)
+
+        self.W_ = normalize(W, norm="l1")
+
+        if self.center_sparse and issparse(X):
+            assert isinstance(X, (csr_array, csr_matrix, csc_array, csc_matrix))
+            X = X.toarray()
+
         if issparse(X):
-            X = csc_array(X)
+            self.mean_ = None
+            X_centered = X
+        else:
+            self.mean_ = X.mean(axis=0)
+            X_centered = X - self.mean_
+            assert isinstance(X_centered, np.ndarray)
 
-        assert isinstance(X, (np.ndarray, csc_array))
-        if X.shape[0] != self.W.shape[0]:
-            raise ValueError(
-                "#rows in `X` must be the same as dimensions of `connectivity`"
-            )
-        if self._n_pos is None:
-            if issparse(X):
-                raise ValueError(
-                    "`n_components` is None, but `X` is a sparse matrix. None is only "
-                    "supported for dense matrices."
-                )
-        elif (self._n_pos + self._n_neg) > X.shape[1]:
-            n, d = X.shape
-            n_comp = self._n_pos + self._n_neg
-            n_comp_max = min(n, d)
-            raise ValueError(
-                f"Requested {n_comp} components but given `X` at most {n_comp_max} "
-                "can be calculated."
-            )
-
-        # Data must be scaled, avoid mean-centering for sparse
-        X = scale(X, with_mean=not issparse(X))
-
-        eig_val, eig_vec = self._multispati_eigendecomposition(X, self.W)
+        eig_val, eig_vec = self._multispati_eigendecomposition(X_centered, self.W_)
 
         self.components_ = eig_vec
         self.eigenvalues_ = eig_val
         self.n_components_ = eig_val.size
-        self.n_features_in_ = X.shape[1]
-        self._fitted = True
+        self._n_features_out = self.n_components_
+        self.n_features_in_ = d
+
+        X_tr = X_centered @ self.components_.T
+        self.variance_, self.moransI_ = self._variance_moransI_decomposition(X_tr)
+
+        if return_transform:
+            return X_tr
 
     def _multispati_eigendecomposition(
-        self, X: _X, W: _Csr
+        self, X: _X, W: _Connectivity
     ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-        # X: beads/bin x gene, must be standardized
+        # X: observations x features
         # W: row-wise definition of neighbors, row-sums should be 1
         def remove_zero_eigenvalues(
             eigen_values: NDArray[T], eigen_vectors: NDArray[U], n: int
@@ -200,46 +229,43 @@ class MultispatiPCA:
         H = (X.T @ (W + W.T) @ X) / (2 * n)
         # TODO handle sparse based on density?
         if issparse(H):
-            # TODO fix can't return all eigenvalues of sparse matrix
-            # TODO check that number of eigenvalues does not exceed d
-            if self._n_pos is None:
-                raise ValueError(
-                    "`n_components` is None, but `X` is a sparse matrix. None is only "
-                    "supported for dense matrices."
-                )
-            elif self._n_pos == 0:
-                eig_val, eig_vec = sparse_linalg.eigsh(H, k=self._n_neg, which="SA")
-            elif self._n_neg == 0:
-                eig_val, eig_vec = sparse_linalg.eigsh(H, k=self._n_pos, which="LA")
-            else:
-                n_comp = 2 * max(self._n_neg, self._n_pos)
-                eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_comp, which="BE")
-                component_indices = self._get_component_indices(
-                    n_comp, self._n_pos, self._n_neg
-                )
-                eig_val = eig_val[component_indices]
-                eig_vec = eig_vec[:, component_indices]
+            match self._n_components:
+                case None:
+                    eig_val, eig_vec = sparse_linalg.eigsh(
+                        H, k=min(n, d) - 1, which="LM"
+                    )
+                case (n_pos, 0) | int(n_pos):
+                    eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_pos, which="LA")
+                case (0, n_neg):
+                    eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_neg, which="SA")
+                case (n_pos, n_neg):
+                    n_comp = min(2 * max(n_neg, n_pos), min(n, d))
+                    eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_comp, which="BE")
+                    component_indices = self._get_component_indices(
+                        n_comp, n_pos, n_neg
+                    )
+                    eig_val = eig_val[component_indices]
+                    eig_vec = eig_vec[:, component_indices]
 
         else:
-            if self._n_pos is None:
-                eig_val, eig_vec = linalg.eigh(H)
-                if n < d:
-                    eig_val, eig_vec = remove_zero_eigenvalues(eig_val, eig_vec, n)
-            elif self._n_pos == 0:
-                eig_val, eig_vec = linalg.eigh(H, subset_by_index=[0, self._n_neg])
-            elif self._n_neg == 0:
-                eig_val, eig_vec = linalg.eigh(
-                    H, subset_by_index=[d - self._n_pos, d - 1]
-                )
-            else:
-                eig_val, eig_vec = linalg.eigh(H)
-                component_indices = self._get_component_indices(
-                    d, self._n_pos, self._n_neg
-                )
-                eig_val = eig_val[component_indices]
-                eig_vec = eig_vec[:, component_indices]
+            match self._n_components:
+                case None:
+                    eig_val, eig_vec = linalg.eigh(H)
+                    if n < d:
+                        eig_val, eig_vec = remove_zero_eigenvalues(eig_val, eig_vec, n)
+                case (n_pos, 0) | int(n_pos):
+                    eig_val, eig_vec = linalg.eigh(
+                        H, subset_by_index=[d - n_pos, d - 1]
+                    )
+                case (0, n_neg):
+                    eig_val, eig_vec = linalg.eigh(H, subset_by_index=[0, n_neg])
+                case (n_pos, n_neg):
+                    eig_val, eig_vec = linalg.eigh(H)
+                    component_indices = self._get_component_indices(d, n_pos, n_neg)
+                    eig_val = eig_val[component_indices]
+                    eig_vec = eig_vec[:, component_indices]
 
-        return np.flip(eig_val), np.fliplr(eig_vec)
+        return np.flip(eig_val), np.flipud(eig_vec.T)
 
     @staticmethod
     def _get_component_indices(n: int, n_pos: int, n_neg: int) -> list[int]:
@@ -263,34 +289,35 @@ class MultispatiPCA:
 
         Raises
         ------
-        ValueError
+        sklearn.exceptions.NotFittedError
             If instance has not been fitted.
         """
-        # Data must be scaled, avoid mean-centering for sparse
-        if not self._fitted:
-            self._not_fitted()
+        check_is_fitted(self)
+        X = check_array(X, accept_sparse=["csr", "csc"])
+        if self.mean_ is not None and not issparse(X):
+            X = X - self.mean_
+        return X @ self.components_.T
 
-        X = scale(X, with_mean=not issparse(X))
-        X_t = X @ self.components_
-        self.variance_, self.moransI_ = self._variance_moransI_decomposition(X_t)
-
-        return X_t
-
-    def fit_transform(self, X: _X) -> np.ndarray:
+    def fit_transform(self, X: _X, y: None = None) -> np.ndarray:
         """
-        Fit the MULTISPATI-PCA projection and transform the data.
+        Fit and transform the data using MULTISPATI-PCA projection.
+
+        See :py:meth:`multispaeti.MultispatiPCA` for more information.
 
         Parameters
         ----------
         X : numpy.ndarray or scipy.sparse.csr_array or scipy.sparse.csc_array
             Array of observations x features.
+        y : None
+            Ignored. scikit-learn compatibility only.
 
         Returns
         -------
         numpy.ndarray
         """
-        self.fit(X)
-        return self.transform(X)
+        X_tr = self._fit(X, return_transform=True)
+        assert isinstance(X_tr, np.ndarray)
+        return X_tr
 
     def transform_spatial_lag(self, X: _X) -> np.ndarray:
         """
@@ -308,27 +335,25 @@ class MultispatiPCA:
 
         Raises
         ------
-        ValueError
+        sklearn.exceptions.NotFittedError
             If instance has not been fitted.
         """
-        if not self._fitted:
-            self._not_fitted()
+        check_is_fitted(self)
         return self._spatial_lag(self.transform(X))
 
     def _spatial_lag(self, X: np.ndarray) -> np.ndarray:
-        return self.W @ X
+        return self.W_ @ X
 
     def _variance_moransI_decomposition(
-        self, X_t: np.ndarray
+        self, X_tr: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
-        lag = self._spatial_lag(X_t)
+        lag = self._spatial_lag(X_tr)
 
-        # vector of row_Weights from dudi.PCA
-        # (we only use default row_weights i.e. 1/n)
-        w = 1 / X_t.shape[0]
+        # vector of row_Weights from dudi.PCA (we only use default row_weights i.e. 1/n)
+        w = 1 / X_tr.shape[0]
 
-        variance = np.sum(X_t * X_t * w, axis=0)
-        moran = np.sum(X_t * lag * w, axis=0) / variance
+        variance = np.sum(X_tr * X_tr * w, axis=0)
+        moran = np.sum(X_tr * lag * w, axis=0) / variance
 
         return variance, moran
 
@@ -343,6 +368,7 @@ class MultispatiPCA:
         ----------
         sparse_approx : bool
             Only applicable if `connectivity` is sparse.
+
         Returns
         -------
         tuple[float, float, float]
@@ -351,9 +377,11 @@ class MultispatiPCA:
 
         # following R package adespatial::moran.bounds
         # sparse approx is following adegenet sPCA as shown in screeplot/summary
-        def double_center(W):
+        def double_center(W: np.ndarray | csr_array) -> np.ndarray:
             if issparse(W):
+                assert isinstance(W, csr_array)
                 W = W.toarray()
+            assert isinstance(W, np.ndarray)
 
             row_means = np.mean(W, axis=1, keepdims=True)
             col_means = np.mean(W, axis=0, keepdims=True) - np.mean(row_means)
@@ -361,7 +389,7 @@ class MultispatiPCA:
             return W - row_means - col_means
 
         # ensure symmetry
-        W = 0.5 * (self.W + self.W.T)
+        W = 0.5 * (self.W_ + self.W_.T)
 
         n_sample = W.shape[0]
         s = n_sample / np.sum(W)  # 1 if original W has rowSums or colSums of 1
@@ -369,21 +397,12 @@ class MultispatiPCA:
         if not issparse(W) or not sparse_approx:
             W = double_center(W)
 
-        if issparse(W):
-            eigen_values = s * sparse_linalg.eigsh(
-                W, k=2, which="BE", return_eigenvectors=False
-            )
-        else:
-            eigen_values = s * linalg.eigvalsh(W, overwrite_a=True)
+        eigen_values = s * sparse_linalg.eigsh(
+            W, k=2, which="BE", return_eigenvectors=False
+        )
 
         I_0 = -1 / (n_sample - 1)
         I_min = min(eigen_values)
         I_max = max(eigen_values)
 
         return I_min, I_max, I_0
-
-    def _not_fitted(self):
-        raise ValueError(
-            "This MultispatiPCA instance is not fitted yet. "
-            "Call 'fit' with appropriate arguments first."
-        )
