@@ -2,11 +2,11 @@ API
 ===
 
 
-The API for :py:class:`multispaeti.MultispatiPCA` tries to follow the design in
-`scikit-learn <https://scikit-learn.org/>`_. The plan is to make it fully compatible in
-the future by inheriting from :py:class:`sklearn.base.BaseEstimator` and
-:py:class:`sklearn.base.TransformerMixin`.
-
+The API for :py:class:`multispaeti.MultispatiPCA` follows the design in
+`scikit-learn <https://scikit-learn.org/>`_. It inherits from
+:py:class:`sklearn.base.BaseEstimator`, :py:class:`sklearn.base.TransformerMixin`, and
+:py:class:`sklearn.base.ClassNamePrefixFeaturesOutMixin` making it fully compatible
+with `scikit-learn` pipelines.
 
 
 .. currentmodule:: multispaeti
