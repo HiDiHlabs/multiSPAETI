@@ -35,6 +35,7 @@ dev  = ["multispaeti[plot,test,docs]", "pre-commit"]
 Homepage      = "https://github.com/HiDiHlabs/multiSPAETI"
 Documentation = "https://multispaeti.readthedocs.io"
 Repository    = "https://github.com/HiDiHlabs/multiSPAETI"
+Issues        = "https://github.com/HiDiHlabs/multiSPAETI/issues"
 
 
 [tool]
