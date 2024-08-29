@@ -26,7 +26,7 @@ conda install conda-forge::multispaeti
 ```
 
 For detailed installation instructions please refer to the
-[documentation](https://multispaeti.readthedocs.io/en/stable/installation.html).
+[documentation](https://multispaeti.readthedocs.io/page/installation.html).
 
 ## Documentation
 

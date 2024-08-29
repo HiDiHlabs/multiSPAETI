@@ -32,9 +32,10 @@ docs = ["sphinx", "sphinx-copybutton", "sphinx-rtd-theme"]
 dev  = ["multispaeti[plot,test,docs]", "pre-commit"]
 
 [project.urls]
-homepage      = "https://github.com/HiDiHlabs/multiSPAETI"
-documentation = "https://multispaeti.readthedocs.io"
-repository    = "https://github.com/HiDiHlabs/multiSPAETI"
+Homepage      = "https://github.com/HiDiHlabs/multiSPAETI"
+Documentation = "https://multispaeti.readthedocs.io"
+Repository    = "https://github.com/HiDiHlabs/multiSPAETI"
+Issues        = "https://github.com/HiDiHlabs/multiSPAETI/issues"
 
 
 [tool]
