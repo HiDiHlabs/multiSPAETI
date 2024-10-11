@@ -127,7 +127,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                         "`n_components` should be less than minimum of "
                         "#samples and #features. Using all components."
                     )
-                self._n_components = None
+                    self._n_components = None
             elif isinstance(self.n_components, tuple) and len(self.n_components) == 2:
                 if any(
                     not isinstance(i, int) or i < 0 for i in self.n_components
