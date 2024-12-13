@@ -12,7 +12,7 @@ from sklearn.base import (
     TransformerMixin,
 )
 from sklearn.preprocessing import normalize
-from sklearn.utils.validation import check_array, check_is_fitted
+from sklearn.utils.validation import check_array, check_is_fitted, validate_data
 
 T = TypeVar("T", bound=np.number)
 U = TypeVar("U", bound=np.number)
@@ -99,13 +99,15 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         *,
         connectivity: _Connectivity | None = None,
         center_sparse: bool = False,
-    ):
+    ) -> None:
         self.n_components = n_components
         self.connectivity = connectivity
         self.center_sparse = center_sparse
+        self.use_gpu = False
+        self.xp: "np" = np
 
     @staticmethod
-    def _validate_connectivity(W: _Connectivity, n: int):
+    def _validate_connectivity(W: _Connectivity, n: int) -> None:
         if W.shape[0] != W.shape[1]:
             raise ValueError("`connectivity` must be square")
         if W.shape[0] != n:
@@ -113,7 +115,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                 "#rows in `X` must be the same as dimensions of `connectivity`"
             )
 
-    def _validate_n_components(self, n: int, d: int):
+    def _validate_n_components(self, n: int, d: int) -> None:
         self._n_components = self.n_components
 
         m = min(n, d)
@@ -144,7 +146,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
             else:
                 raise ValueError("`n_components` must be None, int or (int, int)")
 
-    def fit(self, X: _X, y: None = None):
+    def fit(self, X: _X, y: None = None, use_gpu: bool = False) -> "MultispatiPCA":
         """
         Fit MULTISPATI-PCA projection.
 
@@ -154,6 +156,8 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
             Array of observations x features.
         y : None
             Ignored. scikit-learn compatibility only.
+        use_gpu : bool
+            Whether to use GPU implementation based on `cupy` and `cupyx.scipy`. These packages are not installed by default.
 
         Raises
         ------
@@ -162,11 +166,29 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
             If `n_components` has the wrong type or is negative.
             If `connectivity` is not a square matrix.
         """
+        if use_gpu:
+            try:
+                import cupy
+                from cupyx.scipy.sparse import (  # noqa: F401
+                    csc_matrix,
+                    csr_matrix,
+                    eye,
+                    issparse,
+                )
+                from cupyx.scipy.sparse import linalg as sparse_linalg  # noqa: F401
+
+                self.xp = cupy
+            except ImportError:
+                use_gpu = False
+                raise ImportError(
+                    "GPU implementation requires `cupy` and `cupyx.scipy`."
+                )
+
+        self.use_gpu = use_gpu
         self._fit(X)
         return self
 
     def _fit(self, X: _X, *, return_transform: bool = False) -> np.ndarray | None:
-
         X = check_array(X, accept_sparse=["csr", "csc"])
         if self.connectivity is None:
             warnings.warn(
@@ -209,8 +231,10 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         X_tr = X_centered @ self.components_.T
         self.variance_, self.moransI_ = self._variance_moransI_decomposition(X_tr)
 
-        if return_transform:
+        if return_transform and not self.xp.__name__ == "cupy":
             return X_tr
+        elif return_transform:
+            return X_tr.get()
 
     def _multispati_eigendecomposition(
         self, X: _X, W: _Connectivity
@@ -220,7 +244,9 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         def remove_zero_eigenvalues(
             eigen_values: NDArray[T], eigen_vectors: NDArray[U], n: int
         ) -> tuple[NDArray[T], NDArray[U]]:
-            keep_idx = np.sort(np.argpartition(np.abs(eigen_values), -n)[-n:])
+            keep_idx = self.xp.sort(
+                self.xp.argpartition(self.xp.abs(eigen_values), -n)[-n:]
+            )
 
             return eigen_values[keep_idx], eigen_vectors[:, keep_idx]
 
@@ -265,7 +291,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                     eig_val = eig_val[component_indices]
                     eig_vec = eig_vec[:, component_indices]
 
-        return np.flip(eig_val), np.flipud(eig_vec.T)
+        return self.xp.flip(eig_val), self.xp.flipud(eig_vec.T)
 
     @staticmethod
     def _get_component_indices(n: int, n_pos: int, n_neg: int) -> list[int]:
@@ -293,7 +319,13 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
             If instance has not been fitted.
         """
         check_is_fitted(self)
-        X = check_array(X, accept_sparse=["csr", "csc"])
+        X = validate_data(
+            self,
+            X,
+            reset=False,
+            skip_check_array=False,
+            check_params={"accept_sparse": ["csr", "csc"]},
+        )
         if self.mean_ is not None and not issparse(X):
             X = X - self.mean_
         return X @ self.components_.T
@@ -352,8 +384,12 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         # vector of row_Weights from dudi.PCA (we only use default row_weights i.e. 1/n)
         w = 1 / X_tr.shape[0]
 
-        variance = np.sum(X_tr * X_tr * w, axis=0)
-        moran = np.sum(X_tr * lag * w, axis=0) / variance
+        variance = self.xp.sum(X_tr * X_tr * w, axis=0)
+        moran = self.xp.sum(X_tr * lag * w, axis=0) / variance
+
+        if self.xp.__name__ == "cupy":
+            variance = variance.get()
+            moran = moran.get()
 
         return variance, moran
 
@@ -381,10 +417,10 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
             if issparse(W):
                 assert isinstance(W, csr_array)
                 W = W.toarray()
-            assert isinstance(W, np.ndarray)
+            assert isinstance(W, self.xp.ndarray)
 
-            row_means = np.mean(W, axis=1, keepdims=True)
-            col_means = np.mean(W, axis=0, keepdims=True) - np.mean(row_means)
+            row_means = self.xp.mean(W, axis=1, keepdims=True)
+            col_means = self.xp.mean(W, axis=0, keepdims=True) - self.xp.mean(row_means)
 
             return W - row_means - col_means
 
@@ -392,7 +428,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         W = 0.5 * (self.W_ + self.W_.T)
 
         n_sample = W.shape[0]
-        s = n_sample / np.sum(W)  # 1 if original W has rowSums or colSums of 1
+        s = n_sample / self.xp.sum(W)  # 1 if original W has rowSums or colSums of 1
 
         if not issparse(W) or not sparse_approx:
             W = double_center(W)
@@ -402,7 +438,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         )
 
         I_0 = -1 / (n_sample - 1)
-        I_min = min(eigen_values)
-        I_max = max(eigen_values)
+        I_min = self.xp.min(eigen_values)
+        I_max = self.xp.max(eigen_values)
 
         return I_min, I_max, I_0

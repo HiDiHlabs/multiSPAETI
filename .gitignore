@@ -1,0 +1,5 @@
+.venv
+.python-version
+build
+multispaeti.egg-info
+__pycache__
