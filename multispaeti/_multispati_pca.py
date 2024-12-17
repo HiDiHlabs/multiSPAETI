@@ -1,5 +1,4 @@
 import warnings
-from types import ModuleType
 from typing import TYPE_CHECKING, Self, TypeAlias, TypeVar
 
 import numpy as np
@@ -113,7 +112,6 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         self.connectivity = connectivity
         self.center_sparse = center_sparse
         self.use_gpu = use_gpu
-        self._xp: ModuleType = np
 
     @staticmethod
     def _validate_connectivity(W: _Connectivity, n: int) -> None:
@@ -176,7 +174,10 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         """
         if self.use_gpu:
             try:
+                global cp
                 import cupy as cp
+
+                # TODO: these imports must be adjusted
                 from cupyx.scipy.sparse import (  # noqa: F401
                     csc_matrix,
                     csr_matrix,
@@ -185,7 +186,6 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                 )
                 from cupyx.scipy.sparse import linalg as sparse_linalg  # noqa: F401
 
-                self._xp = cp
             except ImportError as e:
                 raise ImportError(
                     "GPU implementation requires `cupy` and `cupyx.scipy`."
@@ -194,7 +194,9 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         self._fit(X)
         return self
 
-    def _fit(self, X: _X, *, return_transform: bool = False) -> np.ndarray | None:
+    def _fit(
+        self, X: _X, *, return_transform: bool = False
+    ) -> "np.ndarray | cp.ndarray | None":
         X = validate_data(self, X, accept_sparse=["csr", "csc"])
         if self.connectivity is None:
             warnings.warn(
@@ -237,10 +239,8 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         X_tr = X_centered @ self.components_.T
         self.variance_, self.moransI_ = self._variance_moransI_decomposition(X_tr)  # type: ignore
 
-        if return_transform and not self._xp.__name__ == "cupy":
+        if return_transform:
             return X_tr
-        elif return_transform:
-            return X_tr.get()  # type: ignore
 
     def _multispati_eigendecomposition(
         self, X: _X, W: _Connectivity
@@ -253,11 +253,11 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         def remove_zero_eigenvalues(
             eigen_values: NDArray[T], eigen_vectors: NDArray[U], n: int
         ) -> tuple[NDArray[T], NDArray[U]]:
-            keep_idx = self._xp.sort(
-                self._xp.argpartition(self._xp.abs(eigen_values), -n)[-n:]
-            )
+            keep_idx = xp.sort(xp.argpartition(xp.abs(eigen_values), -n)[-n:])
 
             return eigen_values[keep_idx], eigen_vectors[:, keep_idx]
+
+        xp = np if not self.use_gpu else cp
 
         n, d = X.shape
 
@@ -278,11 +278,11 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                     eig_val_hi, eig_vec_hi = sparse_linalg.eigsh(H, k=n_pos, which="LA")
                     eig_val_lo, eig_vec_lo = sparse_linalg.eigsh(H, k=n_neg, which="SA")
 
-                    eig_val = self._xp.concatenate([eig_val_lo, eig_val_hi])
-                    eig_vec = self._xp.concatenate([eig_vec_lo, eig_vec_hi], axis=1)
+                    eig_val = xp.concatenate([eig_val_lo, eig_val_hi])
+                    eig_vec = xp.concatenate([eig_vec_lo, eig_vec_hi], axis=1)
 
         # numpy.ndarray
-        elif self._xp.__name__ != "cupy":
+        elif xp.__name__ != "cupy":
             match self._n_components:
                 case None:
                     eig_val, eig_vec = linalg.eigh(H)
@@ -302,7 +302,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         # cupy.ndarray
         else:
             # TODO: improve if https://github.com/cupy/cupy/issues/7901 is implemented
-            eig_val, eig_vec = self._xp.linalg.eigh(H)
+            eig_val, eig_vec = xp.linalg.eigh(H)
             match self._n_components:
                 case None:
                     # no subsetting required, matching only for completeness
@@ -312,7 +312,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                     eig_val = eig_val[component_indices]
                     eig_vec = eig_vec[:, component_indices]
 
-        return self._xp.flip(eig_val), self._xp.flipud(eig_vec.T)
+        return xp.flip(eig_val), xp.flipud(eig_vec.T)
 
     @staticmethod
     def _get_component_indices(n: int, n_pos: int, n_neg: int) -> list[int]:
@@ -321,7 +321,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         else:
             return list(range(n_neg)) + list(range(n - n_pos, n))
 
-    def transform(self, X: _X) -> np.ndarray:
+    def transform(self, X: _X) -> "np.ndarray | cp.ndarray":
         """
         Transform the data using fitted MULTISPATI-PCA projection.
 
@@ -345,7 +345,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
             X = X - self.mean_
         return X @ self.components_.T
 
-    def fit_transform(self, X: _X, y: None = None) -> np.ndarray:
+    def fit_transform(self, X: _X, y: None = None) -> "np.ndarray | cp.ndarray":
         """
         Fit and transform the data using MULTISPATI-PCA projection.
 
@@ -363,10 +363,9 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         numpy.ndarray
         """
         X_tr = self._fit(X, return_transform=True)
-        assert isinstance(X_tr, np.ndarray)
         return X_tr
 
-    def transform_spatial_lag(self, X: _X) -> np.ndarray:
+    def transform_spatial_lag(self, X: _X) -> "np.ndarray | cp.ndarray":
         """
         Transform the data using fitted MULTISPATI-PCA projection and calculate the
         spatial lag.
@@ -388,21 +387,23 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         check_is_fitted(self)
         return self._spatial_lag(self.transform(X))
 
-    def _spatial_lag(self, X: np.ndarray) -> np.ndarray:
+    def _spatial_lag(self, X: "np.ndarray | cp.ndarray") -> "np.ndarray | cp.ndarray":
         return self.W_ @ X
 
     def _variance_moransI_decomposition(
-        self, X_tr: np.ndarray
+        self, X_tr: "np.ndarray | cp.ndarray"
     ) -> tuple[np.ndarray, np.ndarray] | tuple["cp.ndarray", "cp.ndarray"]:
         lag = self._spatial_lag(X_tr)
+
+        xp = np if not self.use_gpu else cp
 
         # vector of row_Weights from dudi.PCA (we only use default row_weights i.e. 1/n)
         w = 1 / X_tr.shape[0]
 
-        variance = self._xp.sum(X_tr * X_tr * w, axis=0)
-        moran = self._xp.sum(X_tr * lag * w, axis=0) / variance
+        variance = xp.sum(X_tr * X_tr * w, axis=0)
+        moran = xp.sum(X_tr * lag * w, axis=0) / variance
 
-        if self._xp.__name__ == "cupy":
+        if xp.__name__ == "cupy":
             variance = variance.get()
             moran = moran.get()
 
@@ -428,11 +429,12 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
 
         # following R package adespatial::moran.bounds
         # sparse approx is following adegenet sPCA as shown in screeplot/summary
-        def double_center(W: np.ndarray | csr_array) -> np.ndarray:
+        def double_center(
+            W: "np.ndarray | cp.ndarray | csr_array",
+        ) -> "np.ndarray | cp.ndarray":
             if issparse(W):
                 assert isinstance(W, csr_array)
                 W = W.toarray()
-            assert isinstance(W, self._xp.ndarray)
 
             row_means = W.mean(axis=1, keepdims=True)
             col_means = W.mean(axis=0, keepdims=True) - row_means.mean()
