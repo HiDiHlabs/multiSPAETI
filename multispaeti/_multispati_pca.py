@@ -1,5 +1,6 @@
 import warnings
-from typing import TypeAlias, TypeVar
+from types import ModuleType
+from typing import TYPE_CHECKING, TypeAlias, TypeVar
 
 import numpy as np
 from numpy.typing import NDArray
@@ -13,6 +14,9 @@ from sklearn.base import (
 )
 from sklearn.preprocessing import normalize
 from sklearn.utils.validation import check_array, check_is_fitted, validate_data
+
+if TYPE_CHECKING:
+    import cupy as cp
 
 T = TypeVar("T", bound=np.number)
 U = TypeVar("U", bound=np.number)
@@ -104,7 +108,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         self.connectivity = connectivity
         self.center_sparse = center_sparse
         self.use_gpu = False
-        self.xp: "np" = np
+        self.xp: ModuleType = np
 
     @staticmethod
     def _validate_connectivity(W: _Connectivity, n: int) -> None:
@@ -230,16 +234,19 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         self.n_features_in_ = d
 
         X_tr = X_centered @ self.components_.T
-        self.variance_, self.moransI_ = self._variance_moransI_decomposition(X_tr)
+        self.variance_, self.moransI_ = self._variance_moransI_decomposition(X_tr)  # type: ignore
 
         if return_transform and not self.xp.__name__ == "cupy":
             return X_tr
         elif return_transform:
-            return X_tr.get()
+            return X_tr.get()  # type: ignore
 
     def _multispati_eigendecomposition(
         self, X: _X, W: _Connectivity
-    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    ) -> (
+        tuple[NDArray[np.float64], NDArray[np.float64]]
+        | tuple["cp.ndarray", "cp.ndarray"]
+    ):
         # X: observations x features
         # W: row-wise definition of neighbors, row-sums should be 1
         def remove_zero_eigenvalues(
@@ -391,7 +398,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
 
     def _variance_moransI_decomposition(
         self, X_tr: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray] | tuple["cp.ndarray", "cp.ndarray"]:
         lag = self._spatial_lag(X_tr)
 
         # vector of row_Weights from dudi.PCA (we only use default row_weights i.e. 1/n)
