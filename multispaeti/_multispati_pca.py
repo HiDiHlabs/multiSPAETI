@@ -130,6 +130,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                         "#samples and #features. Using all components."
                     )
                     self._n_components = None
+                self._n_components = (self.n_components, 0)
             elif isinstance(self.n_components, tuple) and len(self.n_components) == 2:
                 if any(
                     not isinstance(i, int) or i < 0 for i in self.n_components
@@ -260,7 +261,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                     eig_val, eig_vec = sparse_linalg.eigsh(
                         H, k=min(n, d) - 1, which="LM"
                     )
-                case (n_pos, 0) | int(n_pos):
+                case (n_pos, 0):
                     eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_pos, which="LA")
                 case (0, n_neg):
                     eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_neg, which="SA")
@@ -279,7 +280,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                     eig_val, eig_vec = linalg.eigh(H)
                     if n < d:
                         eig_val, eig_vec = remove_zero_eigenvalues(eig_val, eig_vec, n)
-                case (n_pos, 0) | int(n_pos):
+                case (n_pos, 0):
                     eig_val, eig_vec = linalg.eigh(
                         H, subset_by_index=[d - n_pos, d - 1]
                     )
