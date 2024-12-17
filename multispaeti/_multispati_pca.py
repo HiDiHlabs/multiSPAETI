@@ -1,6 +1,6 @@
 import warnings
 from types import ModuleType
-from typing import TYPE_CHECKING, TypeAlias, TypeVar
+from typing import TYPE_CHECKING, Self, TypeAlias, TypeVar
 
 import numpy as np
 from numpy.typing import NDArray
@@ -151,7 +151,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
             else:
                 raise ValueError("`n_components` must be None, int or (int, int)")
 
-    def fit(self, X: _X, y: None = None, use_gpu: bool = False) -> "MultispatiPCA":
+    def fit(self, X: _X, y: None = None, use_gpu: bool = False) -> Self:
         """
         Fit MULTISPATI-PCA projection.
 
