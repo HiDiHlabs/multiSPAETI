@@ -255,26 +255,26 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
 
         H = (X.T @ (W + W.T) @ X) / (2 * n)
         # TODO handle sparse based on density?
-        if issparse(H):
+        # both scipy and cupy sparse arrays
+        if issparse(H):  # TODO: make sparseness check agnostic over input array
             match self._n_components:
+                # TODO: does the importing as sparse_linalg work like this
                 case None:
-                    eig_val, eig_vec = sparse_linalg.eigsh(
-                        H, k=min(n, d) - 1, which="LM"
-                    )
+                    k = min(n, d) - 1
+                    eig_val, eig_vec = sparse_linalg.eigsh(H, k=k, which="LM")
                 case (n_pos, 0):
                     eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_pos, which="LA")
                 case (0, n_neg):
                     eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_neg, which="SA")
                 case (n_pos, n_neg):
-                    n_comp = min(2 * max(n_neg, n_pos), min(n, d))
-                    eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_comp, which="BE")
-                    component_indices = self._get_component_indices(
-                        n_comp, n_pos, n_neg
-                    )
-                    eig_val = eig_val[component_indices]
-                    eig_vec = eig_vec[:, component_indices]
+                    eig_val_hi, eig_vec_hi = sparse_linalg.eigsh(H, k=n_pos, which="LA")
+                    eig_val_lo, eig_vec_lo = sparse_linalg.eigsh(H, k=n_neg, which="SA")
 
-        else:
+                    eig_val = self.xp.concatenate(eig_val_hi, eig_val_lo)
+                    eig_vec = self.xp.concatenate(eig_vec_hi, eig_vec_lo)
+
+        # numpy.ndarray
+        elif self.xp.__name__ != "cupy":
             match self._n_components:
                 case None:
                     eig_val, eig_vec = linalg.eigh(H)
@@ -288,6 +288,18 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                     eig_val, eig_vec = linalg.eigh(H, subset_by_index=[0, n_neg])
                 case (n_pos, n_neg):
                     eig_val, eig_vec = linalg.eigh(H)
+                    component_indices = self._get_component_indices(d, n_pos, n_neg)
+                    eig_val = eig_val[component_indices]
+                    eig_vec = eig_vec[:, component_indices]
+        # cupy.ndarray
+        else:
+            # TODO: improve if https://github.com/cupy/cupy/issues/7901 is implemented
+            eig_val, eig_vec = self.xp.linalg.eigh(H)
+            match self._n_components:
+                case None:
+                    # no subsetting required, matching only for completeness
+                    pass
+                case (n_pos, n_neg):
                     component_indices = self._get_component_indices(d, n_pos, n_neg)
                     eig_val = eig_val[component_indices]
                     eig_vec = eig_vec[:, component_indices]
@@ -434,12 +446,8 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         if not issparse(W) or not sparse_approx:
             W = double_center(W)
 
-        eigen_values = s * sparse_linalg.eigsh(
-            W, k=2, which="BE", return_eigenvectors=False
-        )
-
         I_0 = -1 / (n_sample - 1)
-        I_min = self.xp.min(eigen_values)
-        I_max = self.xp.max(eigen_values)
+        I_min = s * sparse_linalg.eigsh(W, k=1, which="SA", return_eigenvectors=False)
+        I_max = s * sparse_linalg.eigsh(W, k=1, which="LA", return_eigenvectors=False)
 
         return I_min, I_max, I_0
