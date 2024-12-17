@@ -446,16 +446,16 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         W = 0.5 * (self.W_ + self.W_.T)
 
         n_sample = W.shape[0]
-        s = n_sample / self._xp.sum(W)  # 1 if original W has rowSums or colSums of 1
+        s = n_sample / W.sum()  # 1 if original W has rowSums or colSums of 1
 
         if not issparse(W) or not sparse_approx:
             W = double_center(W)
 
         I_0 = -1 / (n_sample - 1)
-        I_min = (
+        I_min = float(
             s * sparse_linalg.eigsh(W, k=1, which="SA", return_eigenvectors=False)[0]
         )
-        I_max = (
+        I_max = float(
             s * sparse_linalg.eigsh(W, k=1, which="LA", return_eigenvectors=False)[0]
         )
 
