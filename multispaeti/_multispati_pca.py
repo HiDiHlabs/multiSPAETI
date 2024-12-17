@@ -60,7 +60,8 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         centered as this requires transforming it to a dense array, potentially raising
         out-of-memory errors.
     use_gpu : bool
-        Whether to use the GPU for computations. Requires `cupy` to be installed.
+        Whether to use GPU implementation based on `cupy` and `cupyx.scipy`.
+        These packages are not installed by default.
         TODO: add link to install instructions or similar
 
     Attributes
@@ -155,7 +156,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
             else:
                 raise ValueError("`n_components` must be None, int or (int, int)")
 
-    def fit(self, X: _X, y: None = None, use_gpu: bool = False) -> Self:
+    def fit(self, X: _X, y: None = None) -> Self:
         """
         Fit MULTISPATI-PCA projection.
 
@@ -165,8 +166,6 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
             Array of observations x features.
         y : None
             Ignored. scikit-learn compatibility only.
-        use_gpu : bool
-            Whether to use GPU implementation based on `cupy` and `cupyx.scipy`. These packages are not installed by default.
 
         Raises
         ------
@@ -175,7 +174,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
             If `n_components` has the wrong type or is negative.
             If `connectivity` is not a square matrix.
         """
-        if use_gpu:
+        if self.use_gpu:
             try:
                 import cupy as cp
                 from cupyx.scipy.sparse import (  # noqa: F401
@@ -187,13 +186,11 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                 from cupyx.scipy.sparse import linalg as sparse_linalg  # noqa: F401
 
                 self._xp = cp
-            except ImportError:
-                use_gpu = False
+            except ImportError as e:
                 raise ImportError(
                     "GPU implementation requires `cupy` and `cupyx.scipy`."
-                )
+                ) from e
 
-        self.use_gpu = use_gpu
         self._fit(X)
         return self
 
