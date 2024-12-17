@@ -14,7 +14,7 @@ dynamic         = ["version"]
 authors = [
     { name = "Niklas Müller-Bötticher", email = "niklas.mueller-boetticher@charite.de" },
 ]
-dependencies = ["numpy>=1.23", "scikit-learn>=1.1", "scipy>=1.9"]
+dependencies = ["numpy>=1.23", "scikit-learn>=1.6", "scipy>=1.9"]
 classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
