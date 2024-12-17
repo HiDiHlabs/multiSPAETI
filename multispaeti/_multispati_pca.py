@@ -198,7 +198,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         return self
 
     def _fit(self, X: _X, *, return_transform: bool = False) -> np.ndarray | None:
-        X = check_array(X, accept_sparse=["csr", "csc"])
+        X = validate_data(self, X, accept_sparse=["csr", "csc"])
         if self.connectivity is None:
             warnings.warn(
                 "`connectivity` has not been set. Defaulting to identity matrix "
@@ -343,13 +343,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
             If instance has not been fitted.
         """
         check_is_fitted(self)
-        X = validate_data(
-            self,
-            X,
-            reset=False,
-            skip_check_array=False,
-            check_params={"accept_sparse": ["csr", "csc"]},
-        )
+        X = validate_data(self, X, reset=False, accept_sparse=["csr", "csc"])
         if self.mean_ is not None and not issparse(X):
             X = X - self.mean_
         return X @ self.components_.T
