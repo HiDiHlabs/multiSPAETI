@@ -261,7 +261,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                         H, subset_by_index=[d - n_pos, d - 1]
                     )
                 case (0, n_neg):
-                    eig_val, eig_vec = linalg.eigh(H, subset_by_index=[0, n_neg])
+                    eig_val, eig_vec = linalg.eigh(H, subset_by_index=[0, n_neg - 1])
                 case (n_pos, n_neg):
                     eig_val, eig_vec = linalg.eigh(H)
                     component_indices = self._get_component_indices(d, n_pos, n_neg)
