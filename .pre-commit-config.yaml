@@ -32,6 +32,8 @@ repos:
     rev: v1.11.2
     hooks:
       - id: mypy
+        additional_dependencies:
+          - "numpy"
   - repo: https://github.com/codespell-project/codespell
     rev: v2.3.0
     hooks:
