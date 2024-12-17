@@ -447,7 +447,11 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
             W = double_center(W)
 
         I_0 = -1 / (n_sample - 1)
-        I_min = s * sparse_linalg.eigsh(W, k=1, which="SA", return_eigenvectors=False)
-        I_max = s * sparse_linalg.eigsh(W, k=1, which="LA", return_eigenvectors=False)
+        I_min = (
+            s * sparse_linalg.eigsh(W, k=1, which="SA", return_eigenvectors=False)[0]
+        )
+        I_max = (
+            s * sparse_linalg.eigsh(W, k=1, which="LA", return_eigenvectors=False)[0]
+        )
 
         return I_min, I_max, I_0
