@@ -45,10 +45,10 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         If an int, it will keep the top `n_components`.
         If a tuple, it will keep the top and bottom `n_components`, respectively.
     connectivity : scipy.sparse.sparray or scipy.sparse.spmatrix
-        Matrix of row-wise neighbor definitions i.e. c\ :sub:`ij` is the connectivity of
+        Matrix of row-wise neighbor definitions i.e. c\\ :sub:`ij` is the connectivity of
         i :math:`\\to` j. The matrix does not have to be symmetric. It can be a
         binary adjacency matrix or a matrix of connectivities in which case
-        c\ :sub:`ij` should be larger if i and j are close.
+        c\\ :sub:`ij` should be larger if i and j are close.
         A distance matrix should be transformed to connectivities by e.g.
         calculating :math:`1-d/d_{max}` beforehand.
     center_sparse : bool
@@ -436,10 +436,10 @@ def multispati_pca(
         If an int, it will keep the top `n_components`.
         If a tuple, it will keep the top and bottom `n_components`, respectively.
     connectivity : scipy.sparse.sparray or scipy.sparse.spmatrix
-        Matrix of row-wise neighbor definitions i.e. c\ :sub:`ij` is the connectivity of
+        Matrix of row-wise neighbor definitions i.e. c\\ :sub:`ij` is the connectivity of
         i :math:`\\to` j. The matrix does not have to be symmetric. It can be a
         binary adjacency matrix or a matrix of connectivities in which case
-        c\ :sub:`ij` should be larger if i and j are close.
+        c\\ :sub:`ij` should be larger if i and j are close.
         A distance matrix should be transformed to connectivities by e.g.
         calculating :math:`1-d/d_{max}` beforehand.
     center_sparse : bool
