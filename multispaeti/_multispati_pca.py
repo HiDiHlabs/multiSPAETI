@@ -59,6 +59,9 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         Whether to center `X` if it is a sparse array. By default sparse `X` will not be
         centered as this requires transforming it to a dense array, potentially raising
         out-of-memory errors.
+    use_gpu : bool
+        Whether to use the GPU for computations. Requires `cupy` to be installed.
+        TODO: add link to install instructions or similar
 
     Attributes
     ----------
@@ -103,11 +106,12 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         *,
         connectivity: _Connectivity | None = None,
         center_sparse: bool = False,
+        use_gpu: bool = False,
     ) -> None:
         self.n_components = n_components
         self.connectivity = connectivity
         self.center_sparse = center_sparse
-        self.use_gpu = False
+        self.use_gpu = use_gpu
         self.xp: ModuleType = np
 
     @staticmethod
