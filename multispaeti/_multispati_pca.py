@@ -281,8 +281,8 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                     eig_val_hi, eig_vec_hi = sparse_linalg.eigsh(H, k=n_pos, which="LA")
                     eig_val_lo, eig_vec_lo = sparse_linalg.eigsh(H, k=n_neg, which="SA")
 
-                    eig_val = self._xp.concatenate(eig_val_hi, eig_val_lo)
-                    eig_vec = self._xp.concatenate(eig_vec_hi, eig_vec_lo)
+                    eig_val = self._xp.concatenate([eig_val_lo, eig_val_hi])
+                    eig_vec = self._xp.concatenate([eig_vec_lo, eig_vec_hi], axis=1)
 
         # numpy.ndarray
         elif self._xp.__name__ != "cupy":
