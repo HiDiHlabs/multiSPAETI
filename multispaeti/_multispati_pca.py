@@ -197,7 +197,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
     def _fit(
         self, X: _X, *, return_transform: bool = False, stats: bool = True
     ) -> "np.ndarray | cp.ndarray | None":
-        X = check_array(X, accept_sparse=["csr", "csc"])
+        X = validate_data(self, X, reset=False, accept_sparse=["csr", "csc"])
         if self.connectivity is None:
             warnings.warn(
                 "`connectivity` has not been set. Defaulting to identity matrix "
