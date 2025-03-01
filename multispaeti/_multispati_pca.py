@@ -113,6 +113,11 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         self.center_sparse = center_sparse
         self.use_gpu = use_gpu
 
+    def __sklearn_tags__(self):
+        tags = super().__sklearn_tags__()
+        tags.input_tags.sparse = True
+        return tags
+
     @staticmethod
     def _validate_connectivity(W: _Connectivity, n: int) -> None:
         if W.shape[0] != W.shape[1]:
