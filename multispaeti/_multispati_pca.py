@@ -393,7 +393,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
 
     def _variance_moransI_decomposition(
         self, X_tr: "np.ndarray | cp.ndarray"
-    ) -> tuple[np.ndarray, np.ndarray] | tuple["cp.ndarray", "cp.ndarray"]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         lag = self._spatial_lag(X_tr)
 
         xp = np if not self.use_gpu else cp
