@@ -1,6 +1,6 @@
 from importlib.metadata import PackageNotFoundError, version
 
-from ._multispati_pca import MultispatiPCA
+from ._multispati_pca import MultispatiPCA, multispati_pca
 from ._plotting import plot_eigenvalues, plot_variance_moransI_decomposition
 
 try:
@@ -11,4 +11,9 @@ except PackageNotFoundError:
 del PackageNotFoundError, version
 
 
-__all__ = ["MultispatiPCA", "plot_eigenvalues", "plot_variance_moransI_decomposition"]
+__all__ = [
+    "MultispatiPCA",
+    "multispati_pca",
+    "plot_eigenvalues",
+    "plot_variance_moransI_decomposition",
+]

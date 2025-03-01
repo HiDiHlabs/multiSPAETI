@@ -17,5 +17,6 @@ with `scikit-learn` pipelines.
    :template: class.rst
 
    MultispatiPCA
+   multispati_pca
    plot_eigenvalues
    plot_variance_moransI_decomposition

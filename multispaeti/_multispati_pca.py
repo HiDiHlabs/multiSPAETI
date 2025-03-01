@@ -45,10 +45,10 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         If an int, it will keep the top `n_components`.
         If a tuple, it will keep the top and bottom `n_components`, respectively.
     connectivity : scipy.sparse.sparray or scipy.sparse.spmatrix
-        Matrix of row-wise neighbor definitions i.e. c\ :sub:`ij` is the connectivity of
+        Matrix of row-wise neighbor definitions i.e. c\\ :sub:`ij` is the connectivity of
         i :math:`\\to` j. The matrix does not have to be symmetric. It can be a
         binary adjacency matrix or a matrix of connectivities in which case
-        c\ :sub:`ij` should be larger if i and j are close.
+        c\\ :sub:`ij` should be larger if i and j are close.
         A distance matrix should be transformed to connectivities by e.g.
         calculating :math:`1-d/d_{max}` beforehand.
     center_sparse : bool
@@ -165,8 +165,9 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         self._fit(X)
         return self
 
-    def _fit(self, X: _X, *, return_transform: bool = False) -> np.ndarray | None:
-
+    def _fit(
+        self, X: _X, *, return_transform: bool = False, stats: bool = True
+    ) -> np.ndarray | None:
         X = check_array(X, accept_sparse=["csr", "csc"])
         if self.connectivity is None:
             warnings.warn(
@@ -206,8 +207,9 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         self._n_features_out = self.n_components_
         self.n_features_in_ = d
 
-        X_tr = X_centered @ self.components_.T
-        self.variance_, self.moransI_ = self._variance_moransI_decomposition(X_tr)
+        if stats:
+            X_tr = X_centered @ self.components_.T
+            self.variance_, self.moransI_ = self._variance_moransI_decomposition(X_tr)
 
         if return_transform:
             return X_tr
@@ -258,7 +260,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                         H, subset_by_index=[d - n_pos, d - 1]
                     )
                 case (0, n_neg):
-                    eig_val, eig_vec = linalg.eigh(H, subset_by_index=[0, n_neg])
+                    eig_val, eig_vec = linalg.eigh(H, subset_by_index=[0, n_neg - 1])
                 case (n_pos, n_neg):
                     eig_val, eig_vec = linalg.eigh(H)
                     component_indices = self._get_component_indices(d, n_pos, n_neg)
@@ -406,3 +408,53 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         I_max = max(eigen_values)
 
         return I_min, I_max, I_0
+
+
+def multispati_pca(
+    X: _X,
+    n_components: int | tuple[int, int] | None = None,
+    *,
+    connectivity: _Connectivity | None = None,
+    center_sparse: bool = False,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Calculate MULTISPATI-PCA and return the transformed data matrix and components.
+
+    For more information refer to :py:class:`multispaeti.MultispatiPCA`.
+
+    This function is more efficient than :py:meth:`multispaeti.MultispatiPCA.fit_transform`
+    if the additional attributes are not needed.
+
+    Parameters
+    ----------
+    X : numpy.ndarray or scipy.sparse.csr_array or scipy.sparse.csc_array
+        Array of observations x features.
+    n_components : int or tuple[int, int], optional
+        Number of components to keep.
+        If None, will keep all components.
+        If an int, it will keep the top `n_components`.
+        If a tuple, it will keep the top and bottom `n_components`, respectively.
+    connectivity : scipy.sparse.sparray or scipy.sparse.spmatrix
+        Matrix of row-wise neighbor definitions i.e. c\\ :sub:`ij` is the connectivity of
+        i :math:`\\to` j. The matrix does not have to be symmetric. It can be a
+        binary adjacency matrix or a matrix of connectivities in which case
+        c\\ :sub:`ij` should be larger if i and j are close.
+        A distance matrix should be transformed to connectivities by e.g.
+        calculating :math:`1-d/d_{max}` beforehand.
+    center_sparse : bool
+        Whether to center `X` if it is a sparse array. By default sparse `X` will not be
+        centered as this requires transforming it to a dense array, potentially raising
+        out-of-memory errors.
+
+    Returns
+    -------
+        X_transformed : numpy.ndarray
+        components : numpy.ndarray
+    """
+    ms_pca = MultispatiPCA(
+        n_components, connectivity=connectivity, center_sparse=center_sparse
+    )
+
+    X_tr = ms_pca._fit(X, return_transform=True, stats=False)
+    assert isinstance(X_tr, np.ndarray)
+    return X_tr, ms_pca.components_
