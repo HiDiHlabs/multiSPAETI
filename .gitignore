@@ -1,5 +1,10 @@
 .venv
 .python-version
-build
 multispaeti.egg-info
 __pycache__
+
+.vscode
+
+# sphinx
+generated
+build
