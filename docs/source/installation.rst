@@ -11,6 +11,23 @@ To install ``multispaeti`` from `PyPI <https://pypi.org/>`_ using ``pip`` just r
 
     pip install multispaeti
 
+GPU support
+___________
+
+In most cases support for GPU computations (using `CuPy <https://cupy.dev/>`_) can be
+installed via
+
+.. code-block:: bash
+
+    # for CUDA12
+    pip install multispaeti[cuda12]
+
+    # or for CUDA11
+    pip install multispaeti[cuda11]
+
+However, in cases where this doesn't work we recommended referring to the
+`CuPy documentation <https://docs.cupy.dev/en/stable/install.html>`_.
+
 
 conda-forge and ``conda``
 -------------------------
@@ -25,6 +42,12 @@ conda-forge and ``conda``
 
     Of course, it is also possible to use ``mamba`` instead of ``conda``
     to speed up the installation.
+
+GPU support
+___________
+
+For support of GPU computations please refer to the
+`CuPy documentation <https://docs.cupy.dev/en/stable/install.html>`_.
 
 
 From GitHub

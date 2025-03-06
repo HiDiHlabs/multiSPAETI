@@ -45,6 +45,18 @@ Alternatively, this can be achieved in one step by
 
     X_transformed = msPCA.fit_transform(X)
 
+If only the transformed data matrix and selected components are of interest, the most
+efficient is to call :py:func:`multispaeti.multispati_pca` directly as this will avoid
+calculating additional statistics such as variance and Moran's I.
+
+.. code-block:: python
+
+    from multispaeti import multispati_pca
+
+    X_transformed, components = multispati_pca(
+        X, n_components=(30, 5), connectivity=connectivity
+    )
+
 .. Additional, functionality is offered through the method
 .. :py:meth:`multispaeti.MultispatiPCA.moransI_bounds` which calculates the minimum and
 .. maximum bound as well as the expected value given the `connectivity` matrix

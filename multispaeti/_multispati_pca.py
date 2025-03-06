@@ -1,11 +1,11 @@
 import warnings
-from typing import TypeAlias, TypeVar
+from typing import TYPE_CHECKING, Self, TypeAlias, Union
 
 import numpy as np
 from numpy.typing import NDArray
-from scipy import linalg
-from scipy.sparse import csc_array, csc_matrix, csr_array, csr_matrix, eye, issparse
-from scipy.sparse import linalg as sparse_linalg
+from scipy import linalg, sparse
+from scipy.sparse import csc_array, csc_matrix, csr_array, csr_matrix, eye
+from scipy.sparse import linalg as sp_linalg
 from sklearn.base import (
     BaseEstimator,
     ClassNamePrefixFeaturesOutMixin,
@@ -14,13 +14,20 @@ from sklearn.base import (
 from sklearn.preprocessing import normalize
 from sklearn.utils.validation import check_array, check_is_fitted, validate_data
 
-T = TypeVar("T", bound=np.number)
-U = TypeVar("U", bound=np.number)
+if TYPE_CHECKING:
+    import cupy as cp
+    from cupyx.scipy import sparse as cp_sparse
+    from cupyx.scipy.sparse import csc_matrix as cp_csc_matrix
+    from cupyx.scipy.sparse import csr_matrix as cp_csr_matrix
+    from cupyx.scipy.sparse import linalg as csp_linalg
 
 
 _Csr: TypeAlias = csr_array | csr_matrix
 _Csc: TypeAlias = csc_array | csc_matrix
-_X: TypeAlias = np.ndarray | _Csr | _Csc
+_X: TypeAlias = Union[
+    np.ndarray, "cp.ndarray", _Csr, _Csc, "cp_csr_matrix", "cp_csc_matrix"
+]
+# TODO: support cupy arrays for connectivity?
 _Connectivity: TypeAlias = np.ndarray | _Csr
 
 
@@ -45,20 +52,28 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         If an int, it will keep the top `n_components`.
         If a tuple, it will keep the top and bottom `n_components`, respectively.
     connectivity : scipy.sparse.sparray or scipy.sparse.spmatrix
-        Matrix of row-wise neighbor definitions i.e. c\ :sub:`ij` is the connectivity of
+        Matrix of row-wise neighbor definitions i.e. c\\ :sub:`ij` is the connectivity of
         i :math:`\\to` j. The matrix does not have to be symmetric. It can be a
         binary adjacency matrix or a matrix of connectivities in which case
-        c\ :sub:`ij` should be larger if i and j are close.
+        c\\ :sub:`ij` should be larger if i and j are close.
         A distance matrix should be transformed to connectivities by e.g.
         calculating :math:`1-d/d_{max}` beforehand.
     center_sparse : bool
         Whether to center `X` if it is a sparse array. By default sparse `X` will not be
         centered as this requires transforming it to a dense array, potentially raising
         out-of-memory errors.
+    use_gpu : bool
+        Whether to use GPU implementation based on `cupy` and `cupyx.scipy` (not installed
+        by default).
+        Eigendecomposition using the GPU is not as mature yet. For sparse arrays instead of
+        `min(n, d)-1` only `min(n, d)-3` eigenvalues/-vectors can be calculated (which
+        in most cases won't be a problem). For dense arrays all eigenvalues have to be calculated
+        and subsequently subsetted.
+
 
     Attributes
     ----------
-    components_ : numpy.ndarray
+    components_ : numpy.ndarray | cupy.ndarray
         The estimated components: Array of shape `(n_components, n_features)`.
 
     eigenvalues_ : numpy.ndarray
@@ -71,7 +86,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
     moransI_ : numpy.ndarray
         The estimated Moran's I part of the eigenvalues. Array of shape `(n_components,)`.
 
-    mean_ : numpy.ndarray or None
+    mean_ : numpy.ndarray | cupy.ndarray | None
         Per-feature empirical mean, estimated from the training set if `X` is not sparse.
         Array of shape `(n_features,)`.
 
@@ -99,15 +114,20 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         *,
         connectivity: _Connectivity | None = None,
         center_sparse: bool = False,
-    ) -> None:
+        use_gpu: bool = False,
+    ):
         self.n_components = n_components
         self.connectivity = connectivity
         self.center_sparse = center_sparse
-        self.use_gpu = False
-        self.xp: "np" = np
+        self.use_gpu = use_gpu
+
+    def __sklearn_tags__(self):
+        tags = super().__sklearn_tags__()
+        tags.input_tags.sparse = True
+        return tags
 
     @staticmethod
-    def _validate_connectivity(W: _Connectivity, n: int) -> None:
+    def _validate_connectivity(W: _Connectivity, n: int):
         if W.shape[0] != W.shape[1]:
             raise ValueError("`connectivity` must be square")
         if W.shape[0] != n:
@@ -115,7 +135,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                 "#rows in `X` must be the same as dimensions of `connectivity`"
             )
 
-    def _validate_n_components(self, n: int, d: int) -> None:
+    def _validate_n_components(self, n: int, d: int):
         self._n_components = self.n_components
 
         m = min(n, d)
@@ -130,6 +150,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                         "#samples and #features. Using all components."
                     )
                     self._n_components = None
+                self._n_components = (self.n_components, 0)
             elif isinstance(self.n_components, tuple) and len(self.n_components) == 2:
                 if any(
                     not isinstance(i, int) or i < 0 for i in self.n_components
@@ -146,7 +167,30 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
             else:
                 raise ValueError("`n_components` must be None, int or (int, int)")
 
-    def fit(self, X: _X, y: None = None, use_gpu: bool = False) -> "MultispatiPCA":
+    @staticmethod
+    def _import_cupy():
+        try:
+            global cp
+            global cp_sparse
+            global csp_linalg
+            import cupy as cp
+            from cupyx.scipy import sparse as cp_sparse
+            from cupyx.scipy.sparse import linalg as csp_linalg
+
+        except ImportError as e:
+            raise ImportError(
+                "GPU implementation requires `cupy` and `cupyx.scipy`."
+            ) from e
+
+    @staticmethod
+    def _ensure_gpu_matrix(X):
+        if sparse.issparse(X):
+            X = cp_sparse.csr_matrix(X)
+        elif isinstance(X, (np.ndarray, np.matrix)):
+            X = cp.array(X)
+        return X
+
+    def fit(self, X: _X, y: None = None) -> Self:
         """
         Fit MULTISPATI-PCA projection.
 
@@ -156,8 +200,6 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
             Array of observations x features.
         y : None
             Ignored. scikit-learn compatibility only.
-        use_gpu : bool
-            Whether to use GPU implementation based on `cupy` and `cupyx.scipy`. These packages are not installed by default.
 
         Raises
         ------
@@ -166,30 +208,19 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
             If `n_components` has the wrong type or is negative.
             If `connectivity` is not a square matrix.
         """
-        if use_gpu:
-            try:
-                import cupy
-                from cupyx.scipy.sparse import (  # noqa: F401
-                    csc_matrix,
-                    csr_matrix,
-                    eye,
-                    issparse,
-                )
-                from cupyx.scipy.sparse import linalg as sparse_linalg  # noqa: F401
 
-                self.xp = cupy
-            except ImportError:
-                use_gpu = False
-                raise ImportError(
-                    "GPU implementation requires `cupy` and `cupyx.scipy`."
-                )
-
-        self.use_gpu = use_gpu
         self._fit(X)
         return self
 
-    def _fit(self, X: _X, *, return_transform: bool = False) -> np.ndarray | None:
-        X = check_array(X, accept_sparse=["csr", "csc"])
+    def _fit(
+        self, X: _X, *, return_transform: bool = False, stats: bool = True
+    ) -> "np.ndarray | cp.ndarray | None":
+        if self.use_gpu:
+            self._import_cupy()
+            X = self._ensure_gpu_matrix(X)
+        else:
+            X = validate_data(self, X, reset=False, accept_sparse=["csr", "csc"])
+
         if self.connectivity is None:
             warnings.warn(
                 "`connectivity` has not been set. Defaulting to identity matrix "
@@ -207,91 +238,107 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         self._validate_n_components(n, d)
 
         self.W_ = normalize(W, norm="l1")
+        self.W_ = self.W_ if not self.use_gpu else cp_sparse.csr_matrix(self.W_)
 
-        if self.center_sparse and issparse(X):
-            assert isinstance(X, (csr_array, csr_matrix, csc_array, csc_matrix))
+        is_sparse = sparse.issparse if not self.use_gpu else cp_sparse.issparse
+
+        if self.center_sparse and is_sparse(X):
             X = X.toarray()
 
-        if issparse(X):
+        if is_sparse(X):
             self.mean_ = None
             X_centered = X
         else:
             self.mean_ = X.mean(axis=0)
             X_centered = X - self.mean_
-            assert isinstance(X_centered, np.ndarray)
 
         eig_val, eig_vec = self._multispati_eigendecomposition(X_centered, self.W_)
 
         self.components_ = eig_vec
-        self.eigenvalues_ = eig_val
+        self.eigenvalues_ = eig_val.get() if self.use_gpu else eig_val  # type: ignore
         self.n_components_ = eig_val.size
         self._n_features_out = self.n_components_
         self.n_features_in_ = d
 
-        X_tr = X_centered @ self.components_.T
-        self.variance_, self.moransI_ = self._variance_moransI_decomposition(X_tr)
+        if stats:
+            X_tr = X_centered @ self.components_.T
+            self.variance_, self.moransI_ = self._variance_moransI_decomposition(X_tr)
 
-        if return_transform and not self.xp.__name__ == "cupy":
+        if return_transform:
             return X_tr
-        elif return_transform:
-            return X_tr.get()
 
     def _multispati_eigendecomposition(
         self, X: _X, W: _Connectivity
-    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    ) -> (
+        tuple[NDArray[np.float64], NDArray[np.float64]]
+        | tuple["cp.ndarray", "cp.ndarray"]
+    ):
         # X: observations x features
         # W: row-wise definition of neighbors, row-sums should be 1
-        def remove_zero_eigenvalues(
-            eigen_values: NDArray[T], eigen_vectors: NDArray[U], n: int
-        ) -> tuple[NDArray[T], NDArray[U]]:
-            keep_idx = self.xp.sort(
-                self.xp.argpartition(self.xp.abs(eigen_values), -n)[-n:]
-            )
+        def remove_zero_eigenvalues(eigen_values, eigen_vectors, n: int):
+            keep_idx = xp.sort(xp.argpartition(xp.abs(eigen_values), -n)[-n:])
 
             return eigen_values[keep_idx], eigen_vectors[:, keep_idx]
+
+        xp = np if not self.use_gpu else cp
+        is_sparse = sparse.issparse if not self.use_gpu else cp_sparse.issparse
+        eigsh = sp_linalg.eigsh if not self.use_gpu else csp_linalg.eigsh
 
         n, d = X.shape
 
         H = (X.T @ (W + W.T) @ X) / (2 * n)
         # TODO handle sparse based on density?
-        if issparse(H):
+        # both scipy and cupy sparse arrays
+        if is_sparse(H):
             match self._n_components:
                 case None:
-                    eig_val, eig_vec = sparse_linalg.eigsh(
-                        H, k=min(n, d) - 1, which="LM"
-                    )
-                case (n_pos, 0) | int(n_pos):
-                    eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_pos, which="LA")
+                    k = min(n, d) - 1
+                    if self.use_gpu:
+                        k -= 2  # TODO: https://github.com/cupy/cupy/issues/6863
+                    eig_val, eig_vec = eigsh(H, k=k, which="LM")
+                case (n_pos, 0):
+                    eig_val, eig_vec = eigsh(H, k=n_pos, which="LA")
                 case (0, n_neg):
-                    eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_neg, which="SA")
+                    eig_val, eig_vec = eigsh(H, k=n_neg, which="SA")
                 case (n_pos, n_neg):
-                    n_comp = min(2 * max(n_neg, n_pos), min(n, d))
-                    eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_comp, which="BE")
-                    component_indices = self._get_component_indices(
-                        n_comp, n_pos, n_neg
-                    )
-                    eig_val = eig_val[component_indices]
-                    eig_vec = eig_vec[:, component_indices]
+                    eig_val_hi, eig_vec_hi = eigsh(H, k=n_pos, which="LA")
+                    eig_val_lo, eig_vec_lo = eigsh(H, k=n_neg, which="SA")
 
-        else:
+                    eig_val = xp.concatenate([eig_val_lo, eig_val_hi])
+                    eig_vec = xp.concatenate([eig_vec_lo, eig_vec_hi], axis=1)
+
+        # numpy.ndarray
+        elif xp.__name__ != "cupy":
             match self._n_components:
                 case None:
                     eig_val, eig_vec = linalg.eigh(H)
                     if n < d:
                         eig_val, eig_vec = remove_zero_eigenvalues(eig_val, eig_vec, n)
-                case (n_pos, 0) | int(n_pos):
+                case (n_pos, 0):
                     eig_val, eig_vec = linalg.eigh(
                         H, subset_by_index=[d - n_pos, d - 1]
                     )
                 case (0, n_neg):
-                    eig_val, eig_vec = linalg.eigh(H, subset_by_index=[0, n_neg])
+                    eig_val, eig_vec = linalg.eigh(H, subset_by_index=[0, n_neg - 1])
                 case (n_pos, n_neg):
                     eig_val, eig_vec = linalg.eigh(H)
                     component_indices = self._get_component_indices(d, n_pos, n_neg)
                     eig_val = eig_val[component_indices]
                     eig_vec = eig_vec[:, component_indices]
+        # cupy.ndarray
+        else:
+            # TODO: improve if https://github.com/cupy/cupy/issues/7901 is implemented
+            eig_val, eig_vec = xp.linalg.eigh(H)
+            match self._n_components:
+                case None:
+                    # no subsetting required, matching only for completeness
+                    pass
+                case (n_pos, n_neg):
+                    component_indices = self._get_component_indices(d, n_pos, n_neg)
+                    eig_val = eig_val[component_indices]
+                    eig_vec = eig_vec[:, component_indices]
 
-        return self.xp.flip(eig_val), self.xp.flipud(eig_vec.T)
+        return xp.flip(eig_val), xp.flipud(eig_vec.T)
 
     @staticmethod
     def _get_component_indices(n: int, n_pos: int, n_neg: int) -> list[int]:
@@ -300,7 +347,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         else:
             return list(range(n_neg)) + list(range(n - n_pos, n))
 
-    def transform(self, X: _X) -> np.ndarray:
+    def transform(self, X: _X) -> "np.ndarray | cp.ndarray":
         """
         Transform the data using fitted MULTISPATI-PCA projection.
 
@@ -319,18 +366,18 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
             If instance has not been fitted.
         """
         check_is_fitted(self)
-        X = validate_data(
-            self,
-            X,
-            reset=False,
-            skip_check_array=False,
-            check_params={"accept_sparse": ["csr", "csc"]},
-        )
-        if self.mean_ is not None and not issparse(X):
+
+        if self.use_gpu:
+            X = self._ensure_gpu_matrix(X)
+        else:
+            X = validate_data(self, X, reset=False, accept_sparse=["csr", "csc"])
+
+        is_sparse = sparse.issparse if not self.use_gpu else cp_sparse.issparse
+        if self.mean_ is not None and not is_sparse(X):
             X = X - self.mean_
         return X @ self.components_.T
 
-    def fit_transform(self, X: _X, y: None = None) -> np.ndarray:
+    def fit_transform(self, X: _X, y: None = None) -> "np.ndarray | cp.ndarray":
         """
         Fit and transform the data using MULTISPATI-PCA projection.
 
@@ -348,10 +395,9 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         numpy.ndarray
         """
         X_tr = self._fit(X, return_transform=True)
-        assert isinstance(X_tr, np.ndarray)
         return X_tr
 
-    def transform_spatial_lag(self, X: _X) -> np.ndarray:
+    def transform_spatial_lag(self, X: _X) -> "np.ndarray | cp.ndarray":
         """
         Transform the data using fitted MULTISPATI-PCA projection and calculate the
         spatial lag.
@@ -370,24 +416,26 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         sklearn.exceptions.NotFittedError
             If instance has not been fitted.
         """
-        check_is_fitted(self)
+        # transform performs all necessary input checks
         return self._spatial_lag(self.transform(X))
 
-    def _spatial_lag(self, X: np.ndarray) -> np.ndarray:
+    def _spatial_lag(self, X: "np.ndarray | cp.ndarray") -> "np.ndarray | cp.ndarray":
         return self.W_ @ X
 
     def _variance_moransI_decomposition(
-        self, X_tr: np.ndarray
+        self, X_tr: "np.ndarray | cp.ndarray"
     ) -> tuple[np.ndarray, np.ndarray]:
         lag = self._spatial_lag(X_tr)
+
+        xp = np if not self.use_gpu else cp
 
         # vector of row_Weights from dudi.PCA (we only use default row_weights i.e. 1/n)
         w = 1 / X_tr.shape[0]
 
-        variance = self.xp.sum(X_tr * X_tr * w, axis=0)
-        moran = self.xp.sum(X_tr * lag * w, axis=0) / variance
+        variance = xp.sum(X_tr * X_tr * w, axis=0)
+        moran = xp.sum(X_tr * lag * w, axis=0) / variance
 
-        if self.xp.__name__ == "cupy":
+        if xp.__name__ == "cupy":
             variance = variance.get()
             moran = moran.get()
 
@@ -413,32 +461,92 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
 
         # following R package adespatial::moran.bounds
         # sparse approx is following adegenet sPCA as shown in screeplot/summary
-        def double_center(W: np.ndarray | csr_array) -> np.ndarray:
-            if issparse(W):
-                assert isinstance(W, csr_array)
-                W = W.toarray()
-            assert isinstance(W, self.xp.ndarray)
+        def double_center(
+            W: "np.ndarray | cp.ndarray | csr_array | cp_csr_matrix",
+        ) -> "np.ndarray | cp.ndarray":
+            if is_sparse(W):
+                W = W.toarray()  # type: ignore
 
-            row_means = self.xp.mean(W, axis=1, keepdims=True)
-            col_means = self.xp.mean(W, axis=0, keepdims=True) - self.xp.mean(row_means)
+            row_means = W.mean(axis=1, keepdims=True)
+            col_means = W.mean(axis=0, keepdims=True) - row_means.mean()
 
             return W - row_means - col_means
+
+        # TODO: the correct function is not only dependent on use_gpu but also W_
+        is_sparse = sparse.issparse if not self.use_gpu else cp_sparse.issparse
+        eigsh = sp_linalg.eigsh if not self.use_gpu else csp_linalg.eigsh
 
         # ensure symmetry
         W = 0.5 * (self.W_ + self.W_.T)
 
         n_sample = W.shape[0]
-        s = n_sample / self.xp.sum(W)  # 1 if original W has rowSums or colSums of 1
+        s = n_sample / W.sum()  # 1 if original W has rowSums or colSums of 1
 
-        if not issparse(W) or not sparse_approx:
+        if not is_sparse(W) or not sparse_approx:
             W = double_center(W)
 
-        eigen_values = s * sparse_linalg.eigsh(
-            W, k=2, which="BE", return_eigenvectors=False
-        )
-
         I_0 = -1 / (n_sample - 1)
-        I_min = self.xp.min(eigen_values)
-        I_max = self.xp.max(eigen_values)
+        I_min = float(s * eigsh(W, k=1, which="SA", return_eigenvectors=False)[0])
+        I_max = float(s * eigsh(W, k=1, which="LA", return_eigenvectors=False)[0])
 
         return I_min, I_max, I_0
+
+
+def multispati_pca(
+    X: _X,
+    n_components: int | tuple[int, int] | None = None,
+    *,
+    connectivity: _Connectivity | None = None,
+    center_sparse: bool = False,
+    use_gpu: bool = False,
+) -> (
+    tuple[NDArray[np.float64], NDArray[np.float64]] | tuple["cp.ndarray", "cp.ndarray"]
+):
+    """
+    Calculate MULTISPATI-PCA and return the transformed data matrix and components.
+
+    For more information refer to :py:class:`multispaeti.MultispatiPCA`.
+
+    This function is more efficient than :py:meth:`multispaeti.MultispatiPCA.fit_transform`
+    if the additional attributes are not needed.
+
+    Parameters
+    ----------
+    X : numpy.ndarray or scipy.sparse.csr_array or scipy.sparse.csc_array
+        Array of observations x features.
+    n_components : int or tuple[int, int], optional
+        Number of components to keep.
+        If None, will keep all components.
+        If an int, it will keep the top `n_components`.
+        If a tuple, it will keep the top and bottom `n_components`, respectively.
+    connectivity : scipy.sparse.sparray or scipy.sparse.spmatrix
+        Matrix of row-wise neighbor definitions i.e. c\\ :sub:`ij` is the connectivity of
+        i :math:`\\to` j. The matrix does not have to be symmetric. It can be a
+        binary adjacency matrix or a matrix of connectivities in which case
+        c\\ :sub:`ij` should be larger if i and j are close.
+        A distance matrix should be transformed to connectivities by e.g.
+        calculating :math:`1-d/d_{max}` beforehand.
+    center_sparse : bool
+        Whether to center `X` if it is a sparse array. By default sparse `X` will not be
+        centered as this requires transforming it to a dense array, potentially raising
+        out-of-memory errors.
+    use_gpu : bool
+        Whether to use GPU implementation based on `cupy` and `cupyx.scipy` (not installed
+        by default).
+        Eigendecomposition using the GPU is not as mature yet (especially for sparse arrays).
+
+    Returns
+    -------
+        X_transformed : numpy.ndarray or cupy.ndarray
+        components : numpy.ndarray or cupy.ndarray
+    """
+    ms_pca = MultispatiPCA(
+        n_components,
+        connectivity=connectivity,
+        center_sparse=center_sparse,
+        use_gpu=use_gpu,
+    )
+
+    X_tr = ms_pca._fit(X, return_transform=True, stats=False)
+
+    return X_tr, ms_pca.components_
