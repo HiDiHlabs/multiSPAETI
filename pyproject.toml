@@ -11,9 +11,7 @@ license         = { file = "LICENSE" }
 requires-python = ">=3.11"
 dynamic         = ["version"]
 
-authors = [
-    { name = "Niklas Müller-Bötticher", email = "niklas.mueller-boetticher@charite.de" },
-]
+authors = [{ name = "Niklas Müller-Bötticher", email = "niklas.mueller-boetticher@charite.de" }]
 dependencies = ["numpy>=1.25", "scikit-learn>=1.6", "scipy>=1.11"]
 classifiers = [
     "Intended Audience :: Science/Research",
@@ -26,10 +24,12 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-plot = ["matplotlib>=3.8"]
-test = ["pytest"]
-docs = ["sphinx", "sphinx-copybutton", "sphinx-rtd-theme"]
-dev  = ["multispaeti[plot,test,docs]", "pre-commit"]
+cuda11 = ["cupy-cuda11x>=13"]
+cuda12 = ["cupy-cuda12x>=13"]
+plot   = ["matplotlib>=3.8"]
+test   = ["pytest"]
+docs   = ["sphinx", "sphinx-copybutton", "sphinx-rtd-theme"]
+dev    = ["multispaeti[plot,test,docs]", "pre-commit"]
 
 [project.urls]
 Homepage      = "https://github.com/HiDiHlabs/multiSPAETI"
