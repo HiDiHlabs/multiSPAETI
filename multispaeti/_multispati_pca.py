@@ -115,7 +115,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         connectivity: _Connectivity | None = None,
         center_sparse: bool = False,
         use_gpu: bool = False,
-    ) -> None:
+    ):
         self.n_components = n_components
         self.connectivity = connectivity
         self.center_sparse = center_sparse
@@ -127,7 +127,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         return tags
 
     @staticmethod
-    def _validate_connectivity(W: _Connectivity, n: int) -> None:
+    def _validate_connectivity(W: _Connectivity, n: int):
         if W.shape[0] != W.shape[1]:
             raise ValueError("`connectivity` must be square")
         if W.shape[0] != n:
@@ -135,7 +135,7 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
                 "#rows in `X` must be the same as dimensions of `connectivity`"
             )
 
-    def _validate_n_components(self, n: int, d: int) -> None:
+    def _validate_n_components(self, n: int, d: int):
         self._n_components = self.n_components
 
         m = min(n, d)
