@@ -12,6 +12,7 @@ from sklearn.base import (
     TransformerMixin,
 )
 from sklearn.preprocessing import normalize
+from sklearn.utils import check_random_state
 from sklearn.utils.validation import check_array, check_is_fitted, validate_data
 
 if TYPE_CHECKING:
@@ -29,6 +30,43 @@ _X: TypeAlias = Union[
 ]
 # TODO: support cupy arrays for connectivity?
 _Connectivity: TypeAlias = np.ndarray | _Csr
+
+# TODO: enable use of cupy.random.RandomState?
+
+
+# adapted from scikit-learn
+# https://github.com/scikit-learn/scikit-learn/blob/main/sklearn/utils/_arpack.py
+def _init_arpack_v0(
+    size: int, random_state: int | np.random.RandomState | None
+) -> NDArray[np.float64]:
+    """
+    Initialize the starting vector for iteration in ARPACK functions.
+
+    Initialize a ndarray with values sampled from the uniform distribution on
+    [-1, 1]. This initialization model has been chosen to be consistent with
+    the ARPACK one as another initialization can lead to convergence issues.
+
+    Parameters
+    ----------
+    size : int
+        The size of the eigenvalue vector to be initialized.
+
+    random_state : int, RandomState instance or None
+        The seed of the pseudo random number generator used to generate a
+        uniform distribution. If int, random_state is the seed used by the
+        random number generator; If RandomState instance, random_state is the
+        random number generator; If None, the random number generator is the
+        RandomState instance used by `np.random`.
+
+    Returns
+    -------
+    v0 : ndarray of shape (size,)
+        The initialized vector.
+    """
+    random_state = check_random_state(random_state)
+    assert isinstance(random_state, np.random.RandomState)
+    v0 = random_state.uniform(-1, 1, size)
+    return v0
 
 
 class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
@@ -69,7 +107,10 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         `min(n, d)-1` only `min(n, d)-3` eigenvalues/-vectors can be calculated (which
         in most cases won't be a problem). For dense arrays all eigenvalues have to be calculated
         and subsequently subsetted.
-
+    random_state : int | numpy.random.RandomState | None
+        Used when the `X` is sparse and `center_sparse` is False and for Moran's I
+        bound estimation.
+        Pass an int for reproducible results across multiple function calls.
 
     Attributes
     ----------
@@ -115,11 +156,13 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         connectivity: _Connectivity | None = None,
         center_sparse: bool = False,
         use_gpu: bool = False,
+        random_state: int | np.random.RandomState | None = None,
     ):
         self.n_components = n_components
         self.connectivity = connectivity
         self.center_sparse = center_sparse
         self.use_gpu = use_gpu
+        self.random_state = random_state
 
     def __sklearn_tags__(self):
         tags = super().__sklearn_tags__()
@@ -290,19 +333,22 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         # TODO handle sparse based on density?
         # both scipy and cupy sparse arrays
         if is_sparse(H):
+            v0 = _init_arpack_v0(H.shape[0], self.random_state)
+            if self.use_gpu:
+                v0 = cp.asarray(v0)
             match self._n_components:
                 case None:
                     k = min(n, d) - 1
                     if self.use_gpu:
                         k -= 2  # TODO: https://github.com/cupy/cupy/issues/6863
-                    eig_val, eig_vec = eigsh(H, k=k, which="LM")
+                    eig_val, eig_vec = eigsh(H, k=k, which="LM", v0=v0)
                 case (n_pos, 0):
-                    eig_val, eig_vec = eigsh(H, k=n_pos, which="LA")
+                    eig_val, eig_vec = eigsh(H, k=n_pos, which="LA", v0=v0)
                 case (0, n_neg):
-                    eig_val, eig_vec = eigsh(H, k=n_neg, which="SA")
+                    eig_val, eig_vec = eigsh(H, k=n_neg, which="SA", v0=v0)
                 case (n_pos, n_neg):
-                    eig_val_hi, eig_vec_hi = eigsh(H, k=n_pos, which="LA")
-                    eig_val_lo, eig_vec_lo = eigsh(H, k=n_neg, which="SA")
+                    eig_val_hi, eig_vec_hi = eigsh(H, k=n_pos, which="LA", v0=v0)
+                    eig_val_lo, eig_vec_lo = eigsh(H, k=n_neg, which="SA", v0=v0)
 
                     eig_val = xp.concatenate([eig_val_lo, eig_val_hi])
                     eig_vec = xp.concatenate([eig_vec_lo, eig_vec_hi], axis=1)
@@ -485,9 +531,17 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         if not is_sparse(W) or not sparse_approx:
             W = double_center(W)
 
+        v0 = _init_arpack_v0(W.shape[0], self.random_state)
+        if self.use_gpu:
+            v0 = cp.asarray(v0)
+
         I_0 = -1 / (n_sample - 1)
-        I_min = float(s * eigsh(W, k=1, which="SA", return_eigenvectors=False)[0])
-        I_max = float(s * eigsh(W, k=1, which="LA", return_eigenvectors=False)[0])
+        I_min = float(
+            s * eigsh(W, k=1, which="SA", return_eigenvectors=False, v0=v0)[0]
+        )
+        I_max = float(
+            s * eigsh(W, k=1, which="LA", return_eigenvectors=False, v0=v0)[0]
+        )
 
         return I_min, I_max, I_0
 
@@ -499,6 +553,7 @@ def multispati_pca(
     connectivity: _Connectivity | None = None,
     center_sparse: bool = False,
     use_gpu: bool = False,
+    random_state: int | np.random.RandomState | None = None,
 ) -> (
     tuple[NDArray[np.float64], NDArray[np.float64]] | tuple["cp.ndarray", "cp.ndarray"]
 ):
@@ -534,6 +589,9 @@ def multispati_pca(
         Whether to use GPU implementation based on `cupy` and `cupyx.scipy` (not installed
         by default).
         Eigendecomposition using the GPU is not as mature yet (especially for sparse arrays).
+    random_state : int | numpy.random.RandomState | None
+        Used when the `X` is sparse and `center_sparse` is False.
+        Pass an int for reproducible results across multiple function calls.
 
     Returns
     -------
@@ -545,6 +603,7 @@ def multispati_pca(
         connectivity=connectivity,
         center_sparse=center_sparse,
         use_gpu=use_gpu,
+        random_state=random_state,
     )
 
     X_tr = ms_pca._fit(X, return_transform=True, stats=False)
