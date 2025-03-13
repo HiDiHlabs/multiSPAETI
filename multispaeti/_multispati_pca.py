@@ -12,6 +12,7 @@ from sklearn.base import (
     TransformerMixin,
 )
 from sklearn.preprocessing import normalize
+from sklearn.utils import check_random_state
 from sklearn.utils.validation import check_array, check_is_fitted
 
 T = TypeVar("T", bound=np.number)
@@ -22,6 +23,40 @@ _Csr: TypeAlias = csr_array | csr_matrix
 _Csc: TypeAlias = csc_array | csc_matrix
 _X: TypeAlias = np.ndarray | _Csr | _Csc
 _Connectivity: TypeAlias = np.ndarray | _Csr
+
+
+# adapted from scikit-learn
+# https://github.com/scikit-learn/scikit-learn/blob/main/sklearn/utils/_arpack.py
+def _init_arpack_v0(
+    size: int, random_state: int | np.random.RandomState | None
+) -> NDArray[np.float64]:
+    """
+    Initialize the starting vector for iteration in ARPACK functions.
+
+    Initialize a ndarray with values sampled from the uniform distribution on
+    [-1, 1]. This initialization model has been chosen to be consistent with
+    the ARPACK one as another initialization can lead to convergence issues.
+
+    Parameters
+    ----------
+    size : int
+        The size of the eigenvalue vector to be initialized.
+
+    random_state : int, RandomState instance or None
+        The seed of the pseudo random number generator used to generate a
+        uniform distribution. If int, random_state is the seed used by the
+        random number generator; If RandomState instance, random_state is the
+        random number generator; If None, the random number generator is the
+        RandomState instance used by `np.random`.
+
+    Returns
+    -------
+    v0 : ndarray of shape (size,)
+        The initialized vector.
+    """
+    random_state = check_random_state(random_state)
+    v0 = random_state.uniform(-1, 1, size)
+    return v0
 
 
 class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator):
@@ -55,6 +90,10 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         Whether to center `X` if it is a sparse array. By default sparse `X` will not be
         centered as this requires transforming it to a dense array, potentially raising
         out-of-memory errors.
+    random_state : int | numpy.random.RandomState | None
+        Used when the `X` is sparse and `center_sparse` is False and for Moran's I
+        bound estimation.
+        Pass an int for reproducible results across multiple function calls.
 
     Attributes
     ----------
@@ -99,10 +138,12 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         *,
         connectivity: _Connectivity | None = None,
         center_sparse: bool = False,
+        random_state: int | np.random.RandomState | None = None,
     ):
         self.n_components = n_components
         self.connectivity = connectivity
         self.center_sparse = center_sparse
+        self.random_state = random_state
 
     @staticmethod
     def _validate_connectivity(W: _Connectivity, n: int):
@@ -231,18 +272,25 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         H = (X.T @ (W + W.T) @ X) / (2 * n)
         # TODO handle sparse based on density?
         if issparse(H):
+            v0 = _init_arpack_v0(H.shape[0], self.random_state)
             match self._n_components:
                 case None:
                     eig_val, eig_vec = sparse_linalg.eigsh(
-                        H, k=min(n, d) - 1, which="LM"
+                        H, k=min(n, d) - 1, which="LM", v0=v0
                     )
                 case (n_pos, 0) | int(n_pos):
-                    eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_pos, which="LA")
+                    eig_val, eig_vec = sparse_linalg.eigsh(
+                        H, k=n_pos, which="LA", v0=v0
+                    )
                 case (0, n_neg):
-                    eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_neg, which="SA")
+                    eig_val, eig_vec = sparse_linalg.eigsh(
+                        H, k=n_neg, which="SA", v0=v0
+                    )
                 case (n_pos, n_neg):
                     n_comp = min(2 * max(n_neg, n_pos), min(n, d))
-                    eig_val, eig_vec = sparse_linalg.eigsh(H, k=n_comp, which="BE")
+                    eig_val, eig_vec = sparse_linalg.eigsh(
+                        H, k=n_comp, which="BE", v0=v0
+                    )
                     component_indices = self._get_component_indices(
                         n_comp, n_pos, n_neg
                     )
@@ -399,8 +447,9 @@ class MultispatiPCA(ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstim
         if not issparse(W) or not sparse_approx:
             W = double_center(W)
 
+        v0 = _init_arpack_v0(W.shape[0], self.random_state)
         eigen_values = s * sparse_linalg.eigsh(
-            W, k=2, which="BE", return_eigenvectors=False
+            W, k=2, which="BE", return_eigenvectors=False, v0=v0
         )
 
         I_0 = -1 / (n_sample - 1)
@@ -416,6 +465,7 @@ def multispati_pca(
     *,
     connectivity: _Connectivity | None = None,
     center_sparse: bool = False,
+    random_state: int | np.random.RandomState | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Calculate MULTISPATI-PCA and return the transformed data matrix and components.
@@ -445,6 +495,9 @@ def multispati_pca(
         Whether to center `X` if it is a sparse array. By default sparse `X` will not be
         centered as this requires transforming it to a dense array, potentially raising
         out-of-memory errors.
+    random_state : int | numpy.random.RandomState | None
+        Used when the `X` is sparse and `center_sparse` is False.
+        Pass an int for reproducible results across multiple function calls.
 
     Returns
     -------
@@ -452,7 +505,10 @@ def multispati_pca(
         components : numpy.ndarray
     """
     ms_pca = MultispatiPCA(
-        n_components, connectivity=connectivity, center_sparse=center_sparse
+        n_components,
+        connectivity=connectivity,
+        center_sparse=center_sparse,
+        random_state=random_state,
     )
 
     X_tr = ms_pca._fit(X, return_transform=True, stats=False)
