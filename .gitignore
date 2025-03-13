@@ -1,5 +1,6 @@
 .venv
 .python-version
+*.lock
 multispaeti.egg-info
 __pycache__
 
