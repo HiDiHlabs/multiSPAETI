@@ -50,6 +50,7 @@ templates_path = ["_templates"]
 exclude_patterns: list[str] = []
 
 intersphinx_mapping = dict(
+    cupy=("https://docs.cupy.dev/en/stable/", None),
     matplotlib=("https://matplotlib.org/stable/", None),
     numpy=("https://numpy.org/doc/stable/", None),
     python=("https://docs.python.org/3", None),
