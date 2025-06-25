@@ -1,0 +1,11 @@
+.venv
+.python-version
+*.lock
+multispaeti.egg-info
+__pycache__
+
+.vscode
+
+# sphinx
+generated
+build
